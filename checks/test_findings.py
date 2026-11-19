@@ -169,6 +169,10 @@ class Readers(unittest.TestCase):
         self.assertEqual(evidence["python_libraries"], ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f, PYSEC-2026-0001"])
         self.assertEqual(evidence["risky_code"], [])
 
+    def test_code_evidence_can_cover_only_one_jobs_checks(self):
+        self.write("gitleaks.json", GITLEAKS)
+        self.assertEqual(sorted(findings.code_evidence(self.folder, ["python_libraries", "access_rules"])), ["access_rules", "python_libraries"])
+
     def test_site_evidence_reads_the_scan_folder(self):
         self.write("report.json", ZAP_REPORT)
         self.write("rules.conf", ZAP_RULES)

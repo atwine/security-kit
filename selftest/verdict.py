@@ -28,6 +28,8 @@ EXPECTED = {
     "missing-headers": ("site-missing-headers", "site_headers", ("10038 ", "10020 ", "10021 ")),
     # Ways around the gate: each must still be caught by its check.
     "forge-verdict": ("forge-verdict", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "mask-failure": ("mask-failure", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "env-bypass": ("site-env-bypass", "site_headers", ("10038 ", "10020 ", "10021 ")),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
     "env-folder-pin": ("env-folder-pin", "pins", ("selftest/fixture-app/env/requirements.txt",)),
 }
@@ -73,7 +75,13 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
             problems.append(f"{job}: the job ended with '{needs[job].get('result')}', expected 'success'")
         outputs = needs[job].get("outputs") or {}
         try:
-            return json.loads(outputs.get("results") or "{}"), json.loads(outputs.get("evidence") or "{}")
+            # scans.yml reports evidence from each of its checks jobs
+            # (evidence-read, evidence-run); site-scan.yml as one (evidence).
+            evidence = {}
+            for name, raw in sorted(outputs.items()):
+                if name.startswith("evidence"):
+                    evidence.update(json.loads(raw or "{}"))
+            return json.loads(outputs.get("results") or "{}"), evidence
         except ValueError:
             problems.append(f"{job}: its results or evidence aren't readable JSON")
             return None

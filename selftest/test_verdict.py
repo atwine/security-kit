@@ -134,6 +134,14 @@ class Verdict(unittest.TestCase):
         needs["new-defect"] = copy.deepcopy(needs["secret"])
         self.assert_fails(needs, "new-defect")
 
+    def test_evidence_from_two_checks_jobs_is_read_together(self):
+        needs = good_run()
+        outputs = needs["secret"]["outputs"]
+        evidence = json.loads(outputs.pop("evidence"))
+        outputs["evidence-read"] = json.dumps({k: v for k, v in evidence.items() if k != "access_rules"})
+        outputs["evidence-run"] = json.dumps({"access_rules": evidence["access_rules"]})
+        self.assertEqual(verdict.decide(needs)[0], [])
+
     def test_unreadable_evidence_fails(self):
         needs = good_run()
         needs["secret"]["outputs"]["evidence"] = "not json"

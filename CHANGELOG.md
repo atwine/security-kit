@@ -18,14 +18,15 @@
   framework's own advisories (from #2).
 - `RELEASING.md` checks the OWASP Top 10 for Agentic Applications by hand
   before each release, since the watcher can't follow it.
-- The gate can no longer be faked by the project it checks (review group A).
+- The verdict is no longer decided where the project's code runs (review group A).
   Each workflow now has a second job that decides pass or fail on a fresh
   machine from GitHub's record of each check. It keeps the old check names,
   "Security checks (security-kit)" and "Website scan (security-kit, ZAP
   baseline)", so existing branch protection still points at the deciding
   job. The kit's files move out of the project's folder before any project
   code runs, so Semgrep no longer needs to exclude a `.security-kit` folder.
-  Steps that run project code come last. The website scan prepares its rules
+  Steps that run project code come last (they later moved to their own job,
+  below). The website scan prepares its rules
   before the app is installed, checks them again before scanning, and calls
   bash and docker by full path.
 - `fail-on-findings` and `self-test-defect` work only for the kit's own
@@ -49,12 +50,27 @@
   npm audit and pip-audit write JSON now, so their steps print what they
   found through `checks/findings.py`: each vulnerable package with its
   advisories, links and fixed versions. `checks/pins.py` takes `--report`.
-- `scans.yml` and `site-scan.yml` have a new `evidence` output. It's filled
-  only in the kit's own repository, for the self-test, and never decides a
-  project's verdict.
-- The code checks' verdict judges every output of the checks job except
-  `evidence`, so a check added later is judged too, and it fails when the
-  checks job reported nothing.
+- `scans.yml` has new `evidence-read` and `evidence-run` outputs, and
+  `site-scan.yml` an `evidence` output. They're filled only in the kit's own
+  repository, for the self-test, and never decide a project's verdict.
+- Follow-ups from group A's late code and security reviews:
+  - The code checks run in two jobs. gitleaks, Semgrep, the pin check and
+    npm audit run on a machine where no project code runs. pip-audit and
+    the access tests run on their own.
+  - The deciding step is now `checks/gate.py`, with tests. It expects a
+    fixed list of results and fails on a missing or unknown one. Before,
+    project code could register the word "failure" as a secret. GitHub then
+    dropped every failed result, and the gate passed.
+  - Every job fetches the kit before the project, so the kit's own fetch
+    can't empty a project folder named `.security-kit`.
+  - The website scan's steps after the app starts ignore SHELLOPTS,
+    imported bash functions, and loader and docker settings that the app
+    adds through `$GITHUB_ENV`, and call `sha256sum` by full path. Before,
+    one `SHELLOPTS=noexec` line made the scan run nothing and pass.
+  - The README and the project template name the real checks to require,
+    such as "code / Security checks (security-kit)".
+  - Self-test: two new planted defects, `mask-failure` and
+    `site-env-bypass`, and a test that every job fetches the kit first.
 
 ## v0.1.0 (2026-11-19), test release
 
