@@ -1,6 +1,6 @@
 # Security checklist
 
-**Checklist version 0.1** (security-kit v0.1.0). The checks a project passes
+**Checklist version 0.2** (the next security-kit release). The checks a project passes
 before real people use it, and keeps passing afterwards.
 
 Each item says how it's checked:
@@ -28,7 +28,7 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-01 | No secrets (keys, tokens, passwords) in the code or its git history; a secret check runs before every commit | AUTO `secrets` · pre-commit gitleaks | ASVS V13, A02 |
-| SK-02 | No libraries with published security holes | AUTO `python_libraries`, `node_libraries` | A03, ASVS V15 |
+| SK-02 | No libraries with published security holes. Audits can't see a copy a framework bundles inside itself (Next.js bundles React's server code), so also follow the framework's own advisories and update it when it ships a fixed copy | AUTO `python_libraries`, `node_libraries` · EVIDENCE the framework's advisories followed | A03, ASVS V15 |
 | SK-03 | Every library pinned to one exact version (hashes where possible), JavaScript lockfiles committed, GitHub actions pinned to full commit SHAs | AUTO `pins` | A03, LLM03 |
 | SK-04 | Dependabot proposes updates to the integration branch, with a 7-day cooldown | EVIDENCE `.github/dependabot.yml` | A03 |
 | SK-05 | Every new library is checked before it's added: it exists, it's the real one, and it's maintained (AI tools sometimes invent package names) | EVIDENCE pull request review | A03 |
