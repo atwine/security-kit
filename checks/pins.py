@@ -23,7 +23,10 @@ import re
 import sys
 from pathlib import Path
 
-SKIP_DIRS = {".git", ".security-kit", "node_modules", ".venv", "venv", "env", "__pycache__", "site-packages"}
+# Folders that never hold the project's own dependency files. Virtual
+# environments are recognised by their pyvenv.cfg instead of by name, so a
+# project folder that happens to be called env or venv is still checked.
+SKIP_DIRS = {".git", "node_modules", "__pycache__", "site-packages"}
 EXACT_PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?\s*===?\s*[^\s;,*]+\s*(;.*)?$")
 DIRECT_REFERENCE = re.compile(r"@\s*\S*@?[0-9a-f]{40}\b")
 LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb")
@@ -32,10 +35,19 @@ FULL_SHA = re.compile(r"@[0-9a-f]{40}$")
 DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
 
 
+def is_virtualenv(folder: Path) -> bool:
+    return (folder / "pyvenv.cfg").is_file()
+
+
 def files(root: Path, pattern: str):
+    """Files under root, skipping only folders below root (never root's own path)."""
     for path in sorted(root.rglob(pattern)):
-        if not SKIP_DIRS.intersection(path.parts):
-            yield path
+        folders = path.relative_to(root).parts[:-1]
+        if SKIP_DIRS.intersection(folders):
+            continue
+        if any(is_virtualenv(root.joinpath(*folders[: depth + 1])) for depth in range(len(folders))):
+            continue
+        yield path
 
 
 def logical_lines(text: str):

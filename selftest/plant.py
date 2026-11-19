@@ -57,6 +57,42 @@ def unruled_route(app: Path) -> None:
         code.write('\n\n@app.get("/admin/export")\ndef export_everything() -> dict:\n    return {"rows": []}\n')
 
 
+# A project file that tries to fake the verdict. Python loads a json.py from the
+# folder a script runs in before its own json module, so a step that runs
+# `python -` from the project folder would run this instead: it reports every
+# check as passed and stops the script.
+FORGED_JSON = '''\
+import os
+import sys
+
+CHECKS = ("secrets", "python_libraries", "node_libraries", "risky_code", "pins", "access_rules")
+with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+    output.write("results={" + ", ".join(f'"{c}": "success"' for c in CHECKS) + "}\\n")
+sys.exit(0)
+'''
+
+
+def forge_verdict(app: Path) -> None:
+    # A real secret for gitleaks to find, plus the forging json.py at the
+    # checkout root, where the scan's steps run.
+    secret(app)
+    Path("json.py").write_text(FORGED_JSON, encoding="utf-8")
+
+
+def hidden_folder_code(app: Path) -> None:
+    # The risky code again, inside a folder named like the kit's own checkout.
+    hidden = app / ".security-kit"
+    hidden.mkdir()
+    risky_code(hidden)
+
+
+def env_folder_pin(app: Path) -> None:
+    # A loose pin in an ordinary project folder that happens to be called env.
+    folder = app / "env"
+    folder.mkdir()
+    (folder / "requirements.txt").write_text("requests>=2.31\n", encoding="utf-8")
+
+
 def replace_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     if text.count(old) != 1:
@@ -71,6 +107,9 @@ DEFECTS = {
     "unpinned-library": unpinned_library,
     "missing-headers": missing_headers,
     "unruled-route": unruled_route,
+    "forge-verdict": forge_verdict,
+    "hidden-folder-code": hidden_folder_code,
+    "env-folder-pin": env_folder_pin,
 }
 
 if __name__ == "__main__":

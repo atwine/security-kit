@@ -53,6 +53,27 @@ jobs:
       fail-on-findings: false
       self-test-defect: unruled-route
 
+  forge-verdict:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: forge-verdict
+
+  hidden-folder-code:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: hidden-folder-code
+
+  env-folder-pin:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: env-folder-pin
+
   site-clean:
     uses: ./.github/workflows/site-scan.yml
     with:
@@ -91,7 +112,8 @@ jobs:
   # Keep this job's name: main's protection rule requires a check by this name.
   verdict:
     name: Each planted defect is caught, and the clean app passes
-    needs: [clean, secret, vulnerable-library, risky-code, unpinned-library, unruled-route, site-clean, site-missing-headers, watcher]
+    needs: [clean, secret, vulnerable-library, risky-code, unpinned-library, unruled-route, forge-verdict,
+            hidden-folder-code, env-folder-pin, site-clean, site-missing-headers, watcher]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -116,6 +138,10 @@ jobs:
               "unpinned-library": ("unpinned-library", "pins"),
               "unruled-route": ("unruled-route", "access_rules"),
               "missing-headers": ("site-missing-headers", "site_headers"),
+              # Ways around the gate: each must still be caught by its check.
+              "forge-verdict": ("forge-verdict", "secrets"),
+              "hidden-folder-code": ("hidden-folder-code", "risky_code"),
+              "env-folder-pin": ("env-folder-pin", "pins"),
           }
           problems, rows = [], []
           for job in ("clean", "site-clean"):

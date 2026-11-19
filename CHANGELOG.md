@@ -18,6 +18,25 @@
   framework's own advisories (from #2).
 - `RELEASING.md` checks the OWASP Top 10 for Agentic Applications by hand
   before each release, since the watcher can't follow it.
+- The gate can no longer be faked by the project it checks (review group A).
+  Each workflow now has a second job that decides pass or fail on a fresh
+  machine from GitHub's record of each check. It keeps the old check names,
+  "Security checks (security-kit)" and "Website scan (security-kit, ZAP
+  baseline)", so existing branch protection still points at the deciding
+  job. The kit's files move out of the project's folder before any project
+  code runs, so Semgrep no longer needs to exclude a `.security-kit` folder.
+  Steps that run project code come last. The website scan prepares its rules
+  before the app is installed, checks them again before scanning, and calls
+  bash and docker by full path.
+- `fail-on-findings` and `self-test-defect` work only for the kit's own
+  self-test; any other repository gets findings as failures, with a warning.
+- The workflows refuse `pull_request_target` and `workflow_run`, which would
+  scan the base branch instead of the change.
+- The pin check skips virtual environments by their `pyvenv.cfg`, not by
+  folder name, so a project folder called `env` or `venv` is checked.
+- Self-test: three new planted defects, a forged verdict, risky code in a
+  `.security-kit` folder, and a loose pin in an `env` folder. Each must be
+  caught.
 
 ## v0.1.0 (2026-11-19), test release
 

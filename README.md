@@ -18,13 +18,25 @@ every project starts secure and stays current as security standards change.
 Both workflows load the kit's own scripts at the exact version the project
 pinned, so a project on one release always runs that release's checks.
 
+Each workflow has two jobs. The first runs the checks, and GitHub records
+how each check step ended. The second decides pass or fail on a fresh
+machine from that record, so a file or library in the project (a `json.py`,
+a package's start-up hook) can't fake the result. The kit's own files are
+moved out of the project's folder before any project code runs, and the
+steps that run project code (building packages, running its tests) come
+last. The website scan has to run the project's app in the same job as ZAP,
+so a deliberately malicious app could still interfere with that scan; see
+the note at the top of [`site-scan.yml`](.github/workflows/site-scan.yml).
+
 ## How the kit proves itself
 
 [`self-test.yml`](.github/workflows/self-test.yml) runs on every change. It
 plants one known defect at a time into a small fixture app: a leaked token,
 a library with known holes, risky code, an unpinned library, missing
-headers, and a route with no access rule. Each defect must make its own
-check fail, and the clean app must pass everything. The fake token is
+headers, and a route with no access rule. Three more try to get around the
+gate: a project file that forges the verdict, risky code in a folder named
+like the kit's own, and a loose pin in a folder named `env`. Each defect must
+make its own check fail, and the clean app must pass everything. The fake token is
 generated during the run and never stored. The same check runs the
 watcher's tests: a planted change in each source must be reported with a
 source link, and a quiet month or a second run must propose nothing.
@@ -60,9 +72,18 @@ Actions tab and turn it back on.
    `.github/workflows/security-scans.yml` and pin it to a release's full
    commit SHA. The `secure-start` skill in my skills repository does every
    step here.
-2. Copy [`templates/dependabot.yml`](templates/dependabot.yml), so new kit
+2. In the project's branch protection, require the checks named
+   "Security checks (security-kit)" and "Website scan (security-kit, ZAP
+   baseline)". These are the jobs that decide pass or fail.
+3. Copy [`templates/dependabot.yml`](templates/dependabot.yml), so new kit
    releases arrive as update pull requests after the cooldown.
-3. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md).
+4. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md).
+
+Call the workflows from `push` or `pull_request`. They refuse
+`pull_request_target` and `workflow_run`, which check out the base branch
+instead of the change. The `fail-on-findings` and `self-test-defect` inputs
+are for the kit's own self-test: a project can't use them to turn findings
+into a pass.
 
 ## Changing the kit
 

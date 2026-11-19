@@ -6,6 +6,17 @@
 # cross-site policy fail the scan (checks/zap-baseline.conf); smaller
 # issues are reported as warnings.
 #
+# Two jobs. "Run the website scan" runs the app and ZAP and lets GitHub
+# record how the scan ended. "Website scan (security-kit, ZAP baseline)"
+# then decides pass or fail on a fresh machine, from that record. Require
+# that check in branch protection.
+#
+# The scan has to run the project's app in the same job as ZAP, and GitHub's
+# runners give that code administrator rights. The kit sets the rules up
+# before any project code runs, checks them again just before the scan, and
+# calls bash and docker by their full paths, but a deliberately malicious app
+# or dependency could still interfere with the scan itself.
+#
 #   jobs:
 #     website:
 #       uses: atwine/security-kit/.github/workflows/site-scan.yml@<full commit SHA> # vX.Y.Z
@@ -48,32 +59,41 @@ on:
         type: string
         default: ""
       fail-on-findings:
-        description: Fail the job when the scan fails (the kit's self-test turns this off to read the result)
+        description: The kit's own self-test sets this to false to read the result; for any other repository it is ignored and a failed scan fails the check
         type: boolean
         default: true
       self-test-defect:
-        description: Used only by the kit's own self-test
+        description: Used only by the kit's own self-test; any other repository that sets it fails
         type: string
         default: ""
     outputs:
       results:
-        description: "JSON: site_headers -> success or failure"
-        value: ${{ jobs.scan.outputs.results }}
+        description: "JSON: site_headers -> success or failure, from GitHub's record of the scan step"
+        value: ${{ toJSON(jobs.scan.outputs) }}
 
 permissions:
   contents: read
 
 jobs:
   scan:
-    name: Website scan (security-kit, ZAP baseline)
+    name: Run the website scan (security-kit)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # GitHub's own record of how the scan step ended; no script writes it.
     outputs:
-      results: ${{ steps.summary.outputs.results }}
+      site_headers: ${{ steps.site_headers.outcome }}
     env:
       WD: ${{ inputs.working-directory }}
       URL: ${{ inputs.url }}
     steps:
+      - name: Refuse events that check out the wrong code
+        if: github.event_name == 'pull_request_target' || github.event_name == 'workflow_run'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "::error::security-kit can't run from $EVENT: that event checks out the base branch, not the change, so every change would pass. Call it from push or pull_request."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -85,6 +105,22 @@ jobs:
           ref: ${{ job.workflow_sha }}
           path: .security-kit
           persist-credentials: false
+
+      # Before any of the project's code runs: move the kit out of the
+      # project's folder, give ZAP its own folder, copy the rules there, and
+      # record their checksum.
+      - id: prepare
+        name: Set up the scan's own folder and rules
+        env:
+          RULES: ${{ inputs.rules-file }}
+          ZAP_DIR: ${{ runner.temp }}/zap
+          KIT: ${{ runner.temp }}/security-kit
+        run: |
+          mv .security-kit "$KIT"
+          mkdir -p "$ZAP_DIR"
+          chmod 777 "$ZAP_DIR"
+          if [ -n "$RULES" ]; then cp -- "$RULES" "$ZAP_DIR/rules.conf"; else cp -- "$KIT/checks/zap-baseline.conf" "$ZAP_DIR/rules.conf"; fi
+          echo "rules_sha256=$(sha256sum "$ZAP_DIR/rules.conf" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: inputs.python-version != ''
@@ -100,7 +136,15 @@ jobs:
         if: inputs.self-test-defect != ''
         env:
           DEFECT: ${{ inputs.self-test-defect }}
-        run: python3 .security-kit/selftest/plant.py "$DEFECT" "$WD"
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
+          KIT: ${{ runner.temp }}/security-kit
+        run: |
+          if [ "$REPO" != "$KIT_REPO" ]; then
+            echo "::error::self-test-defect is for the kit's own self-test only."
+            exit 1
+          fi
+          python3 "$KIT/selftest/plant.py" "$DEFECT" "$WD"
 
       - name: Install the app
         if: inputs.setup-command != ''
@@ -124,25 +168,36 @@ jobs:
           cat "$RUNNER_TEMP/app.log"
           exit 1
 
+      # The project's code has run in this job by now, and a step can change
+      # the environment of later steps. So this step starts from a fixed bash,
+      # drops the variables that change what bash, docker or the dynamic
+      # loader do, checks the rules are the ones copied before any project
+      # code ran, and calls docker by its full path.
       - id: site_headers
         name: ZAP baseline scan (looks only, sends no attacks)
         continue-on-error: true
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -eo pipefail {0}
         env:
-          RULES: ${{ inputs.rules-file }}
+          URL: ${{ inputs.url }}
+          ZAP_DIR: ${{ runner.temp }}/zap
+          RULES_SHA256: ${{ steps.prepare.outputs.rules_sha256 }}
         run: |
-          mkdir -p zap && chmod 777 zap
-          if [ -n "$RULES" ]; then cp "$RULES" zap/rules.conf; else cp .security-kit/checks/zap-baseline.conf zap/rules.conf; fi
-          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+          export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+          echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | sha256sum -c --quiet -
+          /usr/bin/docker run --rm --network host -v "$ZAP_DIR:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
             zap-baseline.py -t "$URL" -c rules.conf -J report.json -I
 
       - name: List what ZAP found
         if: always()
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH /usr/bin/bash --noprofile --norc -eo pipefail {0}
+        env:
+          REPORT: ${{ runner.temp }}/zap/report.json
         run: |
-          if [ ! -f zap/report.json ]; then echo "No ZAP report."; exit 0; fi
-          python3 - <<'EOF'
-          import json
-          report = json.load(open("zap/report.json"))
+          if [ ! -f "$REPORT" ]; then echo "No ZAP report."; exit 0; fi
+          /usr/bin/python3 -I - <<'EOF'
+          import json, os
+          report = json.load(open(os.environ["REPORT"]))
           rows = [(a.get("riskdesc", ""), a.get("name", ""), a.get("pluginid", ""), a.get("count", "?"))
                   for site in report.get("site", []) for a in site.get("alerts", [])]
           for risk, name, rule, count in rows:
@@ -151,19 +206,45 @@ jobs:
               print("ZAP reported nothing.")
           EOF
 
-      - id: summary
-        name: Result
-        if: always()
+  verdict:
+    name: Website scan (security-kit, ZAP baseline)
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A fresh machine: none of the project's code has run here.
+      - name: Decide from GitHub's record of the scan
         env:
-          OUTCOME: ${{ steps.site_headers.outcome }}
+          OUTCOME: ${{ needs.scan.outputs.site_headers }}
+          SCAN: ${{ needs.scan.result }}
+          ASKED_REPORT_ONLY: ${{ !inputs.fail-on-findings }}
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
         run: |
-          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| site_headers | $OUTCOME |" >> "$GITHUB_STEP_SUMMARY"
-          echo "results={\"site_headers\": \"$OUTCOME\"}" >> "$GITHUB_OUTPUT"
-
-      - name: Fail when the scan failed
-        if: inputs.fail-on-findings && steps.site_headers.outcome == 'failure'
-        run: |
-          echo "The website scan failed. 'List what ZAP found' shows each finding and its rule number."
+          report_only=false
+          if [ "$ASKED_REPORT_ONLY" = "true" ]; then
+            if [ "$REPO" = "$KIT_REPO" ]; then
+              report_only=true
+            else
+              echo "::warning::fail-on-findings: false only applies to the kit's own self-test. This project's scan still decides the check."
+            fi
+          fi
+          case "$OUTCOME" in
+            success) shown="success" ;;
+            failure) shown="found something" ;;
+            *) shown="${OUTCOME:-no result}" ;;
+          esac
+          { echo "| Check | Result |"; echo "|---|---|"; echo "| site_headers | $shown |"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          problem=""
+          if [ "$OUTCOME" = "failure" ]; then
+            problem="The website scan found something. 'List what ZAP found' in the 'Run the website scan' job shows each finding and its rule number."
+          elif [ "$OUTCOME" != "success" ]; then
+            problem="The website scan did not run (${OUTCOME:-no result}); the scan job ended with '$SCAN'."
+          elif [ "$SCAN" != "success" ]; then
+            problem="The scan job ended with '$SCAN'."
+          fi
+          if [ -z "$problem" ]; then exit 0; fi
+          if [ "$report_only" = "true" ]; then echo "::notice::$problem"; exit 0; fi
+          echo "::error::$problem"
           exit 1

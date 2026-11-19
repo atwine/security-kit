@@ -6,10 +6,16 @@
 #     security:
 #       uses: atwine/security-kit/.github/workflows/scans.yml@<full commit SHA> # vX.Y.Z
 #
-# Checks: leaked secrets in the history (gitleaks), Python and JavaScript
-# libraries with known holes (pip-audit, npm audit), risky code patterns
-# (Semgrep), exact version pins (checks/pins.py), and the project's own
+# Checks: leaked secrets in the history (gitleaks), risky code patterns
+# (Semgrep), exact version pins (checks/pins.py), Python and JavaScript
+# libraries with known holes (pip-audit, npm audit), and the project's own
 # access-rule tests when it has them (written by the access-guard skill).
+#
+# Two jobs. "Run the checks" runs every check and lets GitHub record each
+# one's result. "Security checks (security-kit)" then decides pass or fail on
+# a fresh machine, from that record, so nothing the project's code does while
+# the checks run can change the verdict. Require the check named
+# "Security checks (security-kit)" in branch protection.
 name: security-kit scans
 
 on:
@@ -28,31 +34,45 @@ on:
         type: string
         default: "tests/test_access.py"
       fail-on-findings:
-        description: Fail the job when a check finds something (the kit's self-test turns this off to read the results)
+        description: The kit's own self-test sets this to false to read results; for any other repository it is ignored and findings fail the check
         type: boolean
         default: true
       self-test-defect:
-        description: Used only by the kit's own self-test
+        description: Used only by the kit's own self-test; any other repository that sets it fails
         type: string
         default: ""
     outputs:
       results:
-        description: "JSON: check name -> success or failure"
-        value: ${{ jobs.scan.outputs.results }}
+        description: "JSON: check name -> success or failure, from GitHub's record of each check step"
+        value: ${{ toJSON(jobs.scan.outputs) }}
 
 permissions:
   contents: read
 
 jobs:
   scan:
-    name: Security checks (security-kit)
+    name: Run the checks (security-kit)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Each value is GitHub's own record of how a check step ended; no script writes them.
     outputs:
-      results: ${{ steps.summary.outputs.results }}
+      secrets: ${{ steps.secrets.outcome }}
+      risky_code: ${{ steps.risky_code.outcome }}
+      pins: ${{ steps.pins.outcome }}
+      node_libraries: ${{ steps.node_libraries.outcome }}
+      python_libraries: ${{ steps.python_libraries.outcome }}
+      access_rules: ${{ steps.access_rules.outcome }}
     env:
       WD: ${{ inputs.working-directory }}
     steps:
+      - name: Refuse events that check out the wrong code
+        if: github.event_name == 'pull_request_target' || github.event_name == 'workflow_run'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "::error::security-kit can't run from $EVENT: that event checks out the base branch, not the change, so every change would pass. Call it from push or pull_request."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -66,6 +86,9 @@ jobs:
           path: .security-kit
           persist-credentials: false
 
+      - name: Move the kit's files out of the project's folder
+        run: mv .security-kit "$RUNNER_TEMP/security-kit"
+
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -74,8 +97,14 @@ jobs:
         if: inputs.self-test-defect != ''
         env:
           DEFECT: ${{ inputs.self-test-defect }}
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
         run: |
-          python .security-kit/selftest/plant.py "$DEFECT" "$WD"
+          if [ "$REPO" != "$KIT_REPO" ]; then
+            echo "::error::self-test-defect is for the kit's own self-test only."
+            exit 1
+          fi
+          python "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
           git add -A -- "$WD"
           git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
 
@@ -94,24 +123,27 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           pip install --quiet pip-audit==2.10.1
 
+      # These checks only read the project's files, so they run before
+      # anything that executes the project's code.
       - id: secrets
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
         run: gitleaks git --redact --no-banner .
 
-      - id: python_libraries
-        name: Python libraries with known holes (pip-audit)
+      - id: risky_code
+        name: Risky code patterns (Semgrep)
         continue-on-error: true
+        env:
+          CONFIG: ${{ inputs.semgrep-config }}
         run: |
-          files=$(git ls-files -- "$WD" | grep -E '(^|/)[^/]*requirements[^/]*\.txt$' || true)
-          if [ -z "$files" ]; then echo "No requirements files."; exit 0; fi
-          status=0
-          for f in $files; do
-            echo "::group::$f"
-            pip-audit --progress-spinner off -r "$f" || status=1
-            echo "::endgroup::"
-          done
-          exit $status
+          docker run --rm -v "$PWD:/src" -w /src \
+            semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
+            semgrep scan --config "$CONFIG" --error --metrics off --quiet "$WD"
+
+      - id: pins
+        name: Libraries and actions pinned to exact versions
+        continue-on-error: true
+        run: python "$RUNNER_TEMP/security-kit/checks/pins.py" "$WD"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: hashFiles(format('{0}/package-lock.json', inputs.working-directory)) != ''
@@ -126,20 +158,22 @@ jobs:
           cd "$WD"
           npm audit --audit-level=high --omit=dev
 
-      - id: risky_code
-        name: Risky code patterns (Semgrep)
+      # These two run the project's code (building packages, running its
+      # tests), so they come last. They can't change the results above, and
+      # the verdict is decided in a separate job.
+      - id: python_libraries
+        name: Python libraries with known holes (pip-audit)
         continue-on-error: true
-        env:
-          CONFIG: ${{ inputs.semgrep-config }}
         run: |
-          docker run --rm -v "$PWD:/src" -w /src \
-            semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
-            semgrep scan --config "$CONFIG" --error --metrics off --quiet --exclude .security-kit "$WD"
-
-      - id: pins
-        name: Libraries and actions pinned to exact versions
-        continue-on-error: true
-        run: python .security-kit/checks/pins.py "$WD"
+          files=$(git ls-files -- "$WD" | grep -E '(^|/)[^/]*requirements[^/]*\.txt$' || true)
+          if [ -z "$files" ]; then echo "No requirements files."; exit 0; fi
+          status=0
+          for f in $files; do
+            echo "::group::$f"
+            pip-audit --progress-spinner off -r "$f" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
       - id: access_rules
         name: Every route has an access rule (the project's access tests)
@@ -152,32 +186,47 @@ jobs:
           if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
           python -m pytest -q -p no:cacheprovider "$TESTS"
 
-      - id: summary
-        name: Results
-        if: always()
+  verdict:
+    name: Security checks (security-kit)
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A fresh machine: none of the project's code has run here.
+      - name: Decide from GitHub's record of each check
         env:
-          RESULTS: >-
-            {"secrets": "${{ steps.secrets.outcome }}",
-            "python_libraries": "${{ steps.python_libraries.outcome }}",
-            "node_libraries": "${{ steps.node_libraries.outcome }}",
-            "risky_code": "${{ steps.risky_code.outcome }}",
-            "pins": "${{ steps.pins.outcome }}",
-            "access_rules": "${{ steps.access_rules.outcome }}"}
+          RESULTS: ${{ toJSON(needs.scan.outputs) }}
+          SCAN: ${{ needs.scan.result }}
+          ASKED_REPORT_ONLY: ${{ !inputs.fail-on-findings }}
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
         run: |
-          python - <<'EOF'
-          import json, os
-          results = json.loads(os.environ["RESULTS"])
-          lines = ["| Check | Result |", "|---|---|"]
-          lines += [f"| {name} | {'found something' if outcome == 'failure' else outcome} |" for name, outcome in results.items()]
-          print("\n".join(lines))
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("\n".join(lines) + "\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("results=" + json.dumps(results) + "\n")
-          EOF
+          python3 - <<'EOF'
+          import json, os, sys
 
-      - name: Fail when a check found something
-        if: inputs.fail-on-findings && contains(steps.summary.outputs.results, 'failure')
-        run: |
-          echo "At least one check found something. Open its step above for the details."
-          exit 1
+          results = json.loads(os.environ["RESULTS"] or "{}")
+          asked_report_only = os.environ["ASKED_REPORT_ONLY"] == "true"
+          report_only = asked_report_only and os.environ["REPO"] == os.environ["KIT_REPO"]
+
+          rows = ["| Check | Result |", "|---|---|"]
+          problems = []
+          for name, outcome in sorted(results.items()):
+              rows.append(f"| {name} | {'found something' if outcome == 'failure' else (outcome or 'no result')} |")
+              if outcome == "failure":
+                  problems.append(f"{name} found something. Open its step in the 'Run the checks' job for the details.")
+              elif outcome != "success":
+                  problems.append(f"{name} did not run ({outcome or 'no result'}).")
+          if os.environ["SCAN"] != "success":
+              problems.append(f"The checks job ended with '{os.environ['SCAN']}', so some checks may not have run.")
+
+          table = "\n".join(rows)
+          print(table)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(table + "\n")
+          if asked_report_only and not report_only:
+              print("::warning::fail-on-findings: false only applies to the kit's own self-test. This project's results still decide the check.")
+          for problem in problems:
+              print(("::notice::" if report_only else "::error::") + problem)
+          sys.exit(0 if report_only or not problems else 1)
+          EOF
