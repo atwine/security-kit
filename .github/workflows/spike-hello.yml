@@ -16,4 +16,4 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Say which kit version ran
-        run: echo "security-kit test workflow, release 1"
+        run: echo "security-kit test workflow, release 2"
