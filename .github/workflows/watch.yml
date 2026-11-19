@@ -1,0 +1,82 @@
+# The kit's monthly watcher (watch/watch.py). It looks for outside changes
+# that may mean the kit should change: new versions of the scanners the kit
+# pins, new OWASP editions, critical advisories and actively exploited holes
+# in the stacks the templates cover. It opens one issue labelled kit-update
+# that lists them, each with a source link. No AI and no secret: GitHub's own
+# token reads the sources and opens the issue.
+#
+# GitHub pauses scheduled jobs in a public repository after 60 days without
+# activity. If that happens, turn this workflow back on under Actions.
+name: watcher
+
+on:
+  schedule:
+    - cron: "17 6 1 * *" # 06:17 UTC on the 1st of each month
+  workflow_dispatch:
+    inputs:
+      window-days:
+        description: How many days back to look for advisories and exploited holes
+        type: number
+        default: 45
+      dry-run:
+        description: Show what would be proposed without opening an issue
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "watch/**"
+      - ".github/workflows/watch.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-watcher
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Preview what the watcher would propose
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Run the watcher without opening an issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python watch/watch.py --repo "$REPO" --dry-run
+
+  watch:
+    name: Look for changes the kit should follow
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Run the watcher
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WINDOW_DAYS: ${{ inputs.window-days || 45 }}
+          DRY_RUN: ${{ inputs.dry-run || false }}
+        run: |
+          args=(--repo "$REPO" --window-days "$WINDOW_DAYS")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python watch/watch.py "${args[@]}"

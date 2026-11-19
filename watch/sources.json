@@ -1,0 +1,87 @@
+{
+  "owasp": {
+    "asvs": {
+      "label": "OWASP Application Security Verification Standard",
+      "known": "v5.0.0_release",
+      "kind": "release",
+      "repo": "OWASP/ASVS",
+      "pattern": "^v\\d+\\.\\d+\\.\\d+_release$"
+    },
+    "top10": {
+      "label": "OWASP Top 10",
+      "known": "2025",
+      "kind": "folder",
+      "repo": "OWASP/Top10",
+      "path": "",
+      "pattern": "^\\d{4}$"
+    },
+    "api_top10": {
+      "label": "OWASP API Security Top 10",
+      "known": "2023",
+      "kind": "folder",
+      "repo": "OWASP/API-Security",
+      "path": "editions",
+      "pattern": "^\\d{4}$"
+    },
+    "llm_top10": {
+      "label": "OWASP Top 10 for LLM Applications",
+      "known": "2024",
+      "kind": "release",
+      "repo": "OWASP/www-project-top-10-for-large-language-model-applications",
+      "pattern": "^\\d{4}(-v[0-9.]+)?$"
+    }
+  },
+  "scanners": {
+    "gitleaks": {
+      "label": "gitleaks",
+      "repo": "gitleaks/gitleaks",
+      "file": ".github/workflows/scans.yml",
+      "pin": "GITLEAKS_VERSION: (\\d+\\.\\d+\\.\\d+)"
+    },
+    "pip-audit": {
+      "label": "pip-audit",
+      "repo": "pypa/pip-audit",
+      "file": ".github/workflows/scans.yml",
+      "pin": "pip-audit==(\\d+\\.\\d+\\.\\d+)"
+    },
+    "semgrep": {
+      "label": "Semgrep",
+      "repo": "semgrep/semgrep",
+      "file": ".github/workflows/scans.yml",
+      "pin": "semgrep/semgrep:(\\d+\\.\\d+\\.\\d+)@sha256"
+    },
+    "zap": {
+      "label": "ZAP",
+      "repo": "zaproxy/zaproxy",
+      "file": ".github/workflows/site-scan.yml",
+      "pin": "zaproxy/zaproxy:(\\d+\\.\\d+\\.\\d+)@sha256"
+    }
+  },
+  "advisories": {
+    "severity": "critical",
+    "packages": {
+      "pip": ["fastapi", "starlette"],
+      "npm": [
+        "next",
+        "react",
+        "react-dom",
+        "react-server-dom-webpack",
+        "react-server-dom-turbopack",
+        "react-server-dom-parcel"
+      ]
+    }
+  },
+  "exploited": {
+    "words": [
+      "next.js",
+      "vercel",
+      "react",
+      "node.js",
+      "nodejs",
+      "python",
+      "fastapi",
+      "starlette",
+      "postgresql"
+    ]
+  }
+}

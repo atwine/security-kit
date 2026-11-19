@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Monthly watcher (`watch/`, `watch.yml`): checks the scanners the kit
+  pins, the OWASP lists behind the checklist, critical advisories for
+  FastAPI, Starlette, Next.js and React, and CISA's list of actively
+  exploited holes, then opens one `kit-update` issue with a source link
+  for each item. No AI, no secret.
+- The self-test also runs the watcher's tests.
+- `RELEASING.md`: how changes reach `main` and how a version is released.
+- `main` now takes changes only through pull requests whose self-test and
+  security checks pass; release tags can't be moved or deleted.
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,
