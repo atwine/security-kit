@@ -13,7 +13,8 @@
 #
 # Three jobs:
 # - "Run the checks that only read the project" runs gitleaks, Semgrep, the
-#   pin check and npm audit. None of the project's code runs on that machine.
+#   pin check and npm audit. None of the project's code runs on that machine,
+#   though the tools still read the project's own settings files.
 # - "Run the checks that run project code" builds the project's Python
 #   packages for pip-audit and runs its access-rule tests. Code that runs
 #   there can still interfere with those two checks.

@@ -30,9 +30,10 @@ Each job fetches the kit before the project, so a project folder can't be
 emptied by the kit's own fetch.
 
 The website scan has to run the project's app in the same job as ZAP. Its
-later steps ignore environment changes the app makes, but a deliberately
-malicious app with administrator rights could still interfere with that
-scan; see the note at the top of
+later steps ignore the environment lines that would switch off bash or
+redirect the loader and docker. A deliberately malicious app could still
+interfere with that scan, for example by rewriting the rules file between
+the check and the scan; see the note at the top of
 [`site-scan.yml`](.github/workflows/site-scan.yml).
 
 ## How the kit proves itself
@@ -43,7 +44,10 @@ a Python library and a JavaScript library with known holes, risky code, an
 unpinned library, missing headers, and a route with no access rule. Three
 more try to get around the gate: a project file that forges the verdict,
 risky code in a folder named like the kit's own, and a loose pin in a folder
-named `env`.
+named `env`. Two more try to hide a result: project code that registers the
+word "failure" as a secret so GitHub drops failed results, and an app that
+writes `SHELLOPTS=noexec` into the environment of the website scan's later
+steps.
 
 Each defect must make its own check fail, and that check's own report must
 name the planted item, so a crash or an unrelated error doesn't count as a

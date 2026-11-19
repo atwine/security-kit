@@ -18,14 +18,15 @@
   framework's own advisories (from #2).
 - `RELEASING.md` checks the OWASP Top 10 for Agentic Applications by hand
   before each release, since the watcher can't follow it.
-- The project's files can no longer rewrite the verdict (review group A).
+- The verdict is no longer decided where the project's code runs (review group A).
   Each workflow now has a second job that decides pass or fail on a fresh
   machine from GitHub's record of each check. It keeps the old check names,
   "Security checks (security-kit)" and "Website scan (security-kit, ZAP
   baseline)", so existing branch protection still points at the deciding
   job. The kit's files move out of the project's folder before any project
   code runs, so Semgrep no longer needs to exclude a `.security-kit` folder.
-  Steps that run project code come last. The website scan prepares its rules
+  Steps that run project code come last (they later moved to their own job,
+  below). The website scan prepares its rules
   before the app is installed, checks them again before scanning, and calls
   bash and docker by full path.
 - `fail-on-findings` and `self-test-defect` work only for the kit's own

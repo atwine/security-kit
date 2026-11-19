@@ -19,9 +19,10 @@
 # again just before the scan. The steps after the app starts ignore
 # environment lines the app or its libraries add (SHELLOPTS, imported bash
 # functions, loader and docker settings) and call commands by full path. A
-# deliberately malicious app or dependency with administrator rights could
-# still interfere with the scan itself, for example by changing the rules
-# file between the check and the scan or by replacing programs.
+# deliberately malicious app or dependency could still interfere with the
+# scan itself: it runs as the same user, so it can rewrite the rules file
+# between the check and the scan, and with administrator rights it can
+# replace programs.
 #
 #   jobs:
 #     website:
@@ -209,7 +210,7 @@ jobs:
           RULES_SHA256: ${{ steps.prepare.outputs.rules_sha256 }}
         run: |
           export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-          DOCKER_CONFIG="$(/usr/bin/mktemp -d)"
+          DOCKER_CONFIG="$(/usr/bin/mktemp -d -p /tmp)"
           export DOCKER_CONFIG
           export DOCKER_HOST=unix:///var/run/docker.sock
           echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | /usr/bin/sha256sum -c --quiet -
