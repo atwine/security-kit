@@ -74,9 +74,24 @@ jobs:
       fail-on-findings: false
       self-test-defect: missing-headers
 
+  watcher:
+    name: The watcher reports planted changes and stays quiet otherwise
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Run the watcher's tests (no network)
+        run: python -m unittest discover -s watch -v
+
+  # Keep this job's name: main's protection rule requires a check by this name.
   verdict:
     name: Each planted defect is caught, and the clean app passes
-    needs: [clean, secret, vulnerable-library, risky-code, unpinned-library, unruled-route, site-clean, site-missing-headers]
+    needs: [clean, secret, vulnerable-library, risky-code, unpinned-library, unruled-route, site-clean, site-missing-headers, watcher]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -121,7 +136,14 @@ jobs:
                   problems.append(f"{defect}: {check} gave {outcome}, expected failure")
               rows.append(f"| {defect} | {check} | {verdict} |")
           caught = sum("CAUGHT" in row for row in rows)
-          table = "\n".join(["| Planted defect | Check | Result |", "|---|---|---|", *rows, "", f"Caught {caught} of {len(rows)}."])
+          watcher = needs["watcher"]["result"]
+          if watcher != "success":
+              problems.append(f"watcher: its planted-change tests gave {watcher}, expected success")
+          table = "\n".join([
+              "| Planted defect | Check | Result |", "|---|---|---|", *rows, "",
+              f"Caught {caught} of {len(rows)}.",
+              f"Watcher tests (planted changes reported, quiet runs silent): {watcher}.",
+          ])
           print(table)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write(table + "\n")
