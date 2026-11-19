@@ -87,6 +87,34 @@ def mentions(text: str, words: list[str]) -> bool:
     return any(re.search(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", lowered) for word in words)
 
 
+def https_only_opener() -> urllib.request.OpenerDirector:
+    """An opener for HTTPS alone that follows no redirect.
+
+    urllib's default opener also reads file:// and ftp:// addresses, and on a
+    redirect it forwards every header, GitHub's token included, to the new host.
+    """
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    return opener
+
+
+OPENER = https_only_opener()
+ALLOWED_HOSTS = ("api.github.com", "raw.githubusercontent.com")
+
+
+def fetch(request: urllib.request.Request):
+    """Open a request only if it is HTTPS to one of the two GitHub hosts the watcher reads."""
+    address = urllib.parse.urlsplit(request.full_url)
+    if address.scheme != "https" or address.hostname not in ALLOWED_HOSTS:
+        raise SourceError(f"refusing {request.full_url}: the watcher reads only HTTPS from {' and '.join(ALLOWED_HOSTS)}")
+    return OPENER.open(request, timeout=60)
+
+
 def http_get(url: str) -> tuple[object, str | None]:
     """GET JSON. GitHub's token goes to api.github.com only, never to another host."""
     headers = {"User-Agent": "security-kit-watcher", "Accept": "application/json"}
@@ -96,7 +124,7 @@ def http_get(url: str) -> tuple[object, str | None]:
         if os.environ.get("GITHUB_TOKEN"):
             headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as response:
+        with fetch(urllib.request.Request(url, headers=headers)) as response:
             body, link = response.read(), response.headers.get("Link") or ""
     except OSError as error:
         raise SourceError(f"couldn't read {url}: {error}") from error
@@ -125,7 +153,7 @@ def http_post(url: str, payload: dict) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with fetch(request) as response:
             return json.loads(response.read())
     except (OSError, ValueError) as error:
         raise SourceError(f"couldn't open the issue: {error}") from error

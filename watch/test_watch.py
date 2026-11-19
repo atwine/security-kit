@@ -235,24 +235,41 @@ class WatcherTest(unittest.TestCase):
     def test_the_github_token_goes_only_to_the_github_api(self):
         sent = {}
 
-        def urlopen(request, timeout):
+        def opener_open(request, timeout):
             sent[request.full_url] = request.get_header("Authorization")
             return FakeResponse(b"{}")
 
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "placeholder"}), \
-                mock.patch.object(watch.urllib.request, "urlopen", urlopen):
+                mock.patch.object(watch.OPENER, "open", opener_open):
             watch.http_get(watch.KEV_URL)
             watch.http_get(f"{watch.API}/repos/OWASP/ASVS/releases")
         self.assertIsNone(sent[watch.KEV_URL])
         self.assertEqual(sent[f"{watch.API}/repos/OWASP/ASVS/releases"], "Bearer placeholder")
 
     def test_only_github_api_pages_are_followed(self):
-        def urlopen(request, timeout):
+        def opener_open(request, timeout):
             return FakeResponse(b"[]", '<https://elsewhere.example/page2>; rel="next"')
 
-        with mock.patch.object(watch.urllib.request, "urlopen", urlopen):
+        with mock.patch.object(watch.OPENER, "open", opener_open):
             _, following = watch.http_get(f"{watch.API}/advisories")
         self.assertIsNone(following)
+
+    def test_the_watcher_reads_only_https_from_two_github_hosts(self):
+        def opener_open(request, timeout):
+            raise AssertionError(f"opened {request.full_url}")
+
+        with mock.patch.object(watch.OPENER, "open", opener_open):
+            for address in ("file:///etc/passwd", "http://api.github.com/x", "ftp://api.github.com/x",
+                            "https://elsewhere.example/x", "https://api.github.com.elsewhere.example/x"):
+                with self.assertRaises(watch.SourceError, msg=address):
+                    watch.http_get(address)
+
+    def test_the_opener_follows_no_redirect_and_reads_no_files(self):
+        kinds = {type(handler) for handler in watch.OPENER.handlers}
+        self.assertIn(urllib.request.HTTPSHandler, kinds)
+        for unsafe in (urllib.request.HTTPRedirectHandler, urllib.request.HTTPHandler, urllib.request.FileHandler,
+                       urllib.request.FTPHandler, urllib.request.DataHandler, urllib.request.UnknownHandler):
+            self.assertNotIn(unsafe, kinds)
 
 
 if __name__ == "__main__":
