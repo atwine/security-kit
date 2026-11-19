@@ -3,6 +3,9 @@
 # Replace KIT_SHA with the full commit SHA of a security-kit release and
 # KIT_VERSION with its tag. Dependabot then proposes newer releases.
 # Delete the website job if the project has no web server.
+# In branch protection, require "Security checks (security-kit)" and
+# "Website scan (security-kit, ZAP baseline)": those are the jobs that
+# decide pass or fail.
 name: security
 
 on:
