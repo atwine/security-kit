@@ -29,8 +29,9 @@ generated during the run and never stored.
 ## Using it in a project
 
 1. Copy [`templates/security.yml`](templates/security.yml) to
-   `.github/workflows/security.yml` and pin it to a release's full commit
-   SHA.
+   `.github/workflows/security-scans.yml` and pin it to a release's full
+   commit SHA. The `secure-start` skill in my skills repository does every
+   step here.
 2. Copy [`templates/dependabot.yml`](templates/dependabot.yml), so new kit
    releases arrive as update pull requests after the cooldown.
 3. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md).

@@ -1,4 +1,5 @@
-# Copy to .github/workflows/security.yml in your project.
+# Copy to .github/workflows/security-scans.yml in your project (that name
+# also satisfies the push hook that requires a security-scans workflow).
 # Replace KIT_SHA with the full commit SHA of a security-kit release and
 # KIT_VERSION with its tag. Dependabot then proposes newer releases.
 # Delete the website job if the project has no web server.
