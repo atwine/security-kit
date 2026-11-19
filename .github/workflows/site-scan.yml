@@ -1,0 +1,169 @@
+# security-kit: a look-only scan of the running website (OWASP ZAP baseline).
+#
+# Starts the project's app inside the GitHub job, waits until it answers,
+# then lets ZAP follow its links and read every response. ZAP sends no
+# attacks. Missing protective headers, insecure cookies and an open
+# cross-site policy fail the scan (checks/zap-baseline.conf); smaller
+# issues are reported as warnings.
+#
+#   jobs:
+#     website:
+#       uses: atwine/security-kit/.github/workflows/site-scan.yml@<full commit SHA> # vX.Y.Z
+#       with:
+#         python-version: "3.12"
+#         setup-command: pip install -r requirements.txt
+#         start-command: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+#         url: http://127.0.0.1:8000/
+name: security-kit site scan
+
+on:
+  workflow_call:
+    inputs:
+      url:
+        description: Address ZAP starts from, usually the app's home page on 127.0.0.1
+        type: string
+        required: true
+      working-directory:
+        description: Folder the setup and start commands run in
+        type: string
+        default: "."
+      python-version:
+        description: Python version to install first (leave empty for none)
+        type: string
+        default: ""
+      node-version:
+        description: Node.js version to install first (leave empty for none)
+        type: string
+        default: ""
+      setup-command:
+        description: Command that installs the app (runs before the start command)
+        type: string
+        default: ""
+      start-command:
+        description: Command that starts the app; leave empty to scan an address that is already running
+        type: string
+        default: ""
+      rules-file:
+        description: The project's own ZAP rules file (relative to the repository root); defaults to the kit's
+        type: string
+        default: ""
+      fail-on-findings:
+        description: Fail the job when the scan fails (the kit's self-test turns this off to read the result)
+        type: boolean
+        default: true
+      self-test-defect:
+        description: Used only by the kit's own self-test
+        type: string
+        default: ""
+    outputs:
+      results:
+        description: "JSON: site_headers -> success or failure"
+        value: ${{ jobs.scan.outputs.results }}
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Website scan (security-kit, ZAP baseline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      results: ${{ steps.summary.outputs.results }}
+    env:
+      WD: ${{ inputs.working-directory }}
+      URL: ${{ inputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the kit's own files, at the same version as this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .security-kit
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: inputs.python-version != ''
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: inputs.node-version != ''
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Plant a known defect (kit self-test only)
+        if: inputs.self-test-defect != ''
+        env:
+          DEFECT: ${{ inputs.self-test-defect }}
+        run: python3 .security-kit/selftest/plant.py "$DEFECT" "$WD"
+
+      - name: Install the app
+        if: inputs.setup-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          SETUP: ${{ inputs.setup-command }}
+        run: bash -c "$SETUP"
+
+      - name: Start the app and wait until it answers
+        if: inputs.start-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          START: ${{ inputs.start-command }}
+        run: |
+          nohup bash -c "$START" > "$RUNNER_TEMP/app.log" 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -s -o /dev/null "$URL"; then echo "The app answers."; exit 0; fi
+            sleep 1
+          done
+          echo "The app didn't answer at $URL within 60 seconds. Its log:"
+          cat "$RUNNER_TEMP/app.log"
+          exit 1
+
+      - id: site_headers
+        name: ZAP baseline scan (looks only, sends no attacks)
+        continue-on-error: true
+        env:
+          RULES: ${{ inputs.rules-file }}
+        run: |
+          mkdir -p zap && chmod 777 zap
+          if [ -n "$RULES" ]; then cp "$RULES" zap/rules.conf; else cp .security-kit/checks/zap-baseline.conf zap/rules.conf; fi
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:2.16.1@sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab \
+            zap-baseline.py -t "$URL" -c rules.conf -J report.json -I
+
+      - name: List what ZAP found
+        if: always()
+        run: |
+          if [ ! -f zap/report.json ]; then echo "No ZAP report."; exit 0; fi
+          python3 - <<'EOF'
+          import json
+          report = json.load(open("zap/report.json"))
+          rows = [(a.get("riskdesc", ""), a.get("name", ""), a.get("pluginid", ""), a.get("count", "?"))
+                  for site in report.get("site", []) for a in site.get("alerts", [])]
+          for risk, name, rule, count in rows:
+              print(f"{risk} | {name} | rule {rule} | {count} places")
+          if not rows:
+              print("ZAP reported nothing.")
+          EOF
+
+      - id: summary
+        name: Result
+        if: always()
+        env:
+          OUTCOME: ${{ steps.site_headers.outcome }}
+        run: |
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| site_headers | $OUTCOME |" >> "$GITHUB_STEP_SUMMARY"
+          echo "results={\"site_headers\": \"$OUTCOME\"}" >> "$GITHUB_OUTPUT"
+
+      - name: Fail when the scan failed
+        if: inputs.fail-on-findings && steps.site_headers.outcome == 'failure'
+        run: |
+          echo "The website scan failed. 'List what ZAP found' shows each finding and its rule number."
+          exit 1

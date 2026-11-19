@@ -1,0 +1,3 @@
+# Store and check out text with LF line endings everywhere, so scripts and
+# tab-separated rule files behave the same on every system.
+* text=auto eol=lf

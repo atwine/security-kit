@@ -1,0 +1,131 @@
+# The kit proves itself: plant one known defect at a time into the fixture
+# app, run the kit's real checks, and require that the clean app passes
+# everything and each defect makes its own check fail.
+name: self-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+
+  secret:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: secret
+
+  vulnerable-library:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: vulnerable-library
+
+  risky-code:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: risky-code
+
+  unpinned-library:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: unpinned-library
+
+  unruled-route:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: unruled-route
+
+  site-clean:
+    uses: ./.github/workflows/site-scan.yml
+    with:
+      working-directory: selftest/fixture-app
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: python -m uvicorn app:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      fail-on-findings: false
+
+  site-missing-headers:
+    uses: ./.github/workflows/site-scan.yml
+    with:
+      working-directory: selftest/fixture-app
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: python -m uvicorn app:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      fail-on-findings: false
+      self-test-defect: missing-headers
+
+  verdict:
+    name: Each planted defect is caught, and the clean app passes
+    needs: [clean, secret, vulnerable-library, risky-code, unpinned-library, unruled-route, site-clean, site-missing-headers]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare with what must happen
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
+
+          def results(job):
+              raw = needs[job].get("outputs", {}).get("results") or "{}"
+              return json.loads(raw)
+
+          # Which check must catch which planted defect.
+          expected = {
+              "secret": ("secret", "secrets"),
+              "vulnerable-library": ("vulnerable-library", "python_libraries"),
+              "risky-code": ("risky-code", "risky_code"),
+              "unpinned-library": ("unpinned-library", "pins"),
+              "unruled-route": ("unruled-route", "access_rules"),
+              "missing-headers": ("site-missing-headers", "site_headers"),
+          }
+          problems, rows = [], []
+          for job in ("clean", "site-clean"):
+              found = results(job)
+              if not found:
+                  problems.append(f"{job}: no results (the job didn't finish)")
+              for check, outcome in found.items():
+                  if outcome != "success":
+                      problems.append(f"clean app: {check} gave {outcome}, expected success")
+          for defect, (job, check) in expected.items():
+              outcome = results(job).get(check)
+              if outcome is None:
+                  verdict = "not built yet"
+              elif outcome == "failure":
+                  verdict = "CAUGHT"
+              else:
+                  verdict = f"MISSED ({outcome})"
+                  problems.append(f"{defect}: {check} gave {outcome}, expected failure")
+              rows.append(f"| {defect} | {check} | {verdict} |")
+          caught = sum("CAUGHT" in row for row in rows)
+          table = "\n".join(["| Planted defect | Check | Result |", "|---|---|---|", *rows, "", f"Caught {caught} of {len(rows)}."])
+          print(table)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(table + "\n")
+          for problem in problems:
+              print(f"::error::{problem}")
+          sys.exit(1 if problems else 0)
+          EOF
