@@ -37,6 +37,22 @@
 - Self-test: three new planted defects, a forged verdict, risky code in a
   `.security-kit` folder, and a loose pin in an `env` folder. Each must be
   caught.
+- The self-test proves each catch (review group C). A catch counts only when
+  the check's own report names the planted item. Every other check must pass
+  in each defect run, and a missing result fails. Before this, a pip crash on
+  a version conflict counted as catching the vulnerable library. The rules
+  moved into `selftest/verdict.py`, with tests.
+- The planted vulnerable Python library is now urllib3 1.26.4, which installs
+  cleanly, so pip-audit really looks it up. A planted lodash 4.17.15 lockfile
+  gives npm audit its first test. Caught 10 of 10.
+- Each check also writes its tool's report to the runner's temporary folder.
+  npm audit and pip-audit now print a short list of what they found (from
+  `checks/findings.py`) instead of their own table, because they write JSON.
+  `checks/pins.py` takes `--report`.
+- `scans.yml` and `site-scan.yml` have a new `evidence` output. Only the
+  kit's own self-test fills it; it never decides a project's verdict.
+- The code checks' verdict reads a fixed list of six checks, so a check that
+  never reported shows as "no result" and fails.
 
 ## v0.1.0 (2026-11-19), test release
 

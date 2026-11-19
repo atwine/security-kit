@@ -21,9 +21,13 @@ def secret(app: Path) -> None:
 
 
 def vulnerable_library(app: Path) -> None:
-    # requests 2.19.1 has published holes, fixed in later releases.
+    # urllib3 1.26.4 has published holes (PYSEC-2021-108 and later). It has no
+    # dependencies of its own, so it installs cleanly next to the fixture's
+    # libraries and pip-audit really looks it up. (requests 2.19.1, planted
+    # before, needs idna<2.8, which the fixture's libraries can't use, so pip
+    # stopped before pip-audit checked anything.)
     with (app / "requirements.txt").open("a", encoding="utf-8") as requirements:
-        requirements.write("requests==2.19.1\n")
+        requirements.write("urllib3==1.26.4\n")
 
 
 def node_library(app: Path) -> None:

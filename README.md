@@ -32,14 +32,21 @@ the note at the top of [`site-scan.yml`](.github/workflows/site-scan.yml).
 
 [`self-test.yml`](.github/workflows/self-test.yml) runs on every change. It
 plants one known defect at a time into a small fixture app: a leaked token,
-a library with known holes, risky code, an unpinned library, missing
-headers, and a route with no access rule. Three more try to get around the
-gate: a project file that forges the verdict, risky code in a folder named
-like the kit's own, and a loose pin in a folder named `env`. Each defect must
-make its own check fail, and the clean app must pass everything. The fake token is
-generated during the run and never stored. The same check runs the
-watcher's tests: a planted change in each source must be reported with a
-source link, and a quiet month or a second run must propose nothing.
+a Python library and a JavaScript library with known holes, risky code, an
+unpinned library, missing headers, and a route with no access rule. Three
+more try to get around the gate: a project file that forges the verdict,
+risky code in a folder named like the kit's own, and a loose pin in a folder
+named `env`.
+
+Each defect must make its own check fail, and that check's own report must
+name the planted item, so a crash or an unrelated error doesn't count as a
+catch. Every other check must still pass in that run. The clean app must
+pass everything with nothing reported, and a missing result fails the run.
+The rules live in [`selftest/verdict.py`](selftest/verdict.py), which has its
+own tests. The fake token is generated during the run and never stored. The
+same check runs the watcher's tests: a planted change in each source must be
+reported with a source link, and a quiet month or a second run must propose
+nothing.
 
 ## Staying current
 

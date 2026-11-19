@@ -69,7 +69,10 @@ on:
     outputs:
       results:
         description: "JSON: site_headers -> success or failure, from GitHub's record of the scan step"
-        value: ${{ toJSON(jobs.scan.outputs) }}
+        value: '{"site_headers": "${{ jobs.scan.outputs.site_headers }}"}'
+      evidence:
+        description: "Kit self-test only (empty for every other repository): JSON site_headers -> the failing ZAP rules it reported"
+        value: ${{ jobs.scan.outputs.evidence }}
 
 permissions:
   contents: read
@@ -79,9 +82,11 @@ jobs:
     name: Run the website scan (security-kit)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # GitHub's own record of how the scan step ended; no script writes it.
+    # site_headers is GitHub's own record of how the scan step ended; no
+    # script writes it. evidence is filled only for the kit's own self-test.
     outputs:
       site_headers: ${{ steps.site_headers.outcome }}
+      evidence: ${{ steps.evidence.outputs.evidence }}
     env:
       WD: ${{ inputs.working-directory }}
       URL: ${{ inputs.url }}
@@ -205,6 +210,24 @@ jobs:
           if not rows:
               print("ZAP reported nothing.")
           EOF
+
+      # Kit self-test only: list the failing rules ZAP reported, so the
+      # self-test can prove the catch is the defect it planted. Every other
+      # repository skips this, and the verdict below never reads it.
+      - id: evidence
+        name: What the scan reported (kit self-test only)
+        if: always()
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH /usr/bin/bash --noprofile --norc -eo pipefail {0}
+        env:
+          ZAP_DIR: ${{ runner.temp }}/zap
+          KIT: ${{ runner.temp }}/security-kit
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
+        run: |
+          if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own self-test uses this."; exit 0; fi
+          evidence=$(/usr/bin/python3 -I "$KIT/checks/findings.py" evidence-site "$ZAP_DIR")
+          echo "$evidence"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
 
   verdict:
     name: Website scan (security-kit, ZAP baseline)

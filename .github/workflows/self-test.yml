@@ -1,6 +1,9 @@
 # The kit proves itself: plant one known defect at a time into the fixture
 # app, run the kit's real checks, and require that the clean app passes
-# everything and each defect makes its own check fail.
+# everything with nothing reported, that each defect makes its own check
+# fail with the planted item named in that check's report, and that every
+# other check still passes. selftest/verdict.py decides; its tests are in
+# selftest/test_verdict.py.
 name: self-test
 
 on:

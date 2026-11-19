@@ -44,7 +44,16 @@ on:
     outputs:
       results:
         description: "JSON: check name -> success or failure, from GitHub's record of each check step"
-        value: ${{ toJSON(jobs.scan.outputs) }}
+        value: >-
+          {"secrets": "${{ jobs.scan.outputs.secrets }}",
+          "risky_code": "${{ jobs.scan.outputs.risky_code }}",
+          "pins": "${{ jobs.scan.outputs.pins }}",
+          "node_libraries": "${{ jobs.scan.outputs.node_libraries }}",
+          "python_libraries": "${{ jobs.scan.outputs.python_libraries }}",
+          "access_rules": "${{ jobs.scan.outputs.access_rules }}"}
+      evidence:
+        description: "Kit self-test only (empty for every other repository): JSON check name -> what that check's tool reported"
+        value: ${{ jobs.scan.outputs.evidence }}
 
 permissions:
   contents: read
@@ -54,7 +63,10 @@ jobs:
     name: Run the checks (security-kit)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Each value is GitHub's own record of how a check step ended; no script writes them.
+    # The six check values are GitHub's own record of how each check step
+    # ended; no script writes them. evidence is written by a script and is
+    # filled only for the kit's own self-test, which never uses it to decide
+    # a project's verdict.
     outputs:
       secrets: ${{ steps.secrets.outcome }}
       risky_code: ${{ steps.risky_code.outcome }}
@@ -62,6 +74,7 @@ jobs:
       node_libraries: ${{ steps.node_libraries.outcome }}
       python_libraries: ${{ steps.python_libraries.outcome }}
       access_rules: ${{ steps.access_rules.outcome }}
+      evidence: ${{ steps.evidence.outputs.evidence }}
     env:
       WD: ${{ inputs.working-directory }}
     steps:
@@ -86,8 +99,13 @@ jobs:
           path: .security-kit
           persist-credentials: false
 
+      # Each check also writes its tool's report to $RUNNER_TEMP/reports.
+      # Semgrep writes from its own container, so that folder is open to it.
       - name: Move the kit's files out of the project's folder
-        run: mv .security-kit "$RUNNER_TEMP/security-kit"
+        run: |
+          mv .security-kit "$RUNNER_TEMP/security-kit"
+          mkdir -p "$RUNNER_TEMP/reports"
+          chmod 777 "$RUNNER_TEMP/reports"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -128,7 +146,7 @@ jobs:
       - id: secrets
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
-        run: gitleaks git --redact --no-banner .
+        run: gitleaks git --redact --no-banner --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
 
       - id: risky_code
         name: Risky code patterns (Semgrep)
@@ -136,14 +154,14 @@ jobs:
         env:
           CONFIG: ${{ inputs.semgrep-config }}
         run: |
-          docker run --rm -v "$PWD:/src" -w /src \
+          docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP/reports:/reports" -w /src \
             semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
-            semgrep scan --config "$CONFIG" --error --metrics off --quiet "$WD"
+            semgrep scan --config "$CONFIG" --error --metrics off --quiet --json-output=/reports/semgrep.json "$WD"
 
       - id: pins
         name: Libraries and actions pinned to exact versions
         continue-on-error: true
-        run: python "$RUNNER_TEMP/security-kit/checks/pins.py" "$WD"
+        run: python -I "$RUNNER_TEMP/security-kit/checks/pins.py" "$WD" --report "$RUNNER_TEMP/reports/pins.json"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: hashFiles(format('{0}/package-lock.json', inputs.working-directory)) != ''
@@ -156,7 +174,10 @@ jobs:
         run: |
           if [ ! -f "$WD/package-lock.json" ]; then echo "No package-lock.json."; exit 0; fi
           cd "$WD"
-          npm audit --audit-level=high --omit=dev
+          status=0
+          npm audit --audit-level=high --omit=dev --json > "$RUNNER_TEMP/reports/npm-audit.json" || status=$?
+          python -I "$RUNNER_TEMP/security-kit/checks/findings.py" show npm "$RUNNER_TEMP/reports/npm-audit.json"
+          exit $status
 
       # These two run the project's code (building packages, running its
       # tests), so they come last. They can't change the results above, and
@@ -168,9 +189,13 @@ jobs:
           files=$(git ls-files -- "$WD" | grep -E '(^|/)[^/]*requirements[^/]*\.txt$' || true)
           if [ -z "$files" ]; then echo "No requirements files."; exit 0; fi
           status=0
+          n=0
           for f in $files; do
+            n=$((n + 1))
+            report="$RUNNER_TEMP/reports/pip-audit-$n.json"
             echo "::group::$f"
-            pip-audit --progress-spinner off -r "$f" || status=1
+            pip-audit --progress-spinner off --format json --output "$report" -r "$f" || status=1
+            python -I "$RUNNER_TEMP/security-kit/checks/findings.py" show pip-audit "$report"
             echo "::endgroup::"
           done
           exit $status
@@ -184,7 +209,22 @@ jobs:
           cd "$WD"
           if [ ! -f "$TESTS" ]; then echo "No access tests at $TESTS. The access-guard skill writes them."; exit 0; fi
           if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
-          python -m pytest -q -p no:cacheprovider "$TESTS"
+          python -m pytest -q -p no:cacheprovider --junitxml "$RUNNER_TEMP/reports/access-tests.xml" "$TESTS"
+
+      # Kit self-test only: list what each check's tool reported, so the
+      # self-test can prove each catch is the defect it planted. Every other
+      # repository skips this, and the verdict below never reads it.
+      - id: evidence
+        name: What each check reported (kit self-test only)
+        if: always()
+        env:
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
+        run: |
+          if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own self-test uses this."; exit 0; fi
+          evidence=$(python -I "$RUNNER_TEMP/security-kit/checks/findings.py" evidence-code "$RUNNER_TEMP/reports")
+          echo "$evidence"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
 
   verdict:
     name: Security checks (security-kit)
@@ -205,13 +245,15 @@ jobs:
           python3 - <<'EOF'
           import json, os, sys
 
+          CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules")
           results = json.loads(os.environ["RESULTS"] or "{}")
           asked_report_only = os.environ["ASKED_REPORT_ONLY"] == "true"
           report_only = asked_report_only and os.environ["REPO"] == os.environ["KIT_REPO"]
 
           rows = ["| Check | Result |", "|---|---|"]
           problems = []
-          for name, outcome in sorted(results.items()):
+          for name in CHECKS:
+              outcome = results.get(name) or ""
               rows.append(f"| {name} | {'found something' if outcome == 'failure' else (outcome or 'no result')} |")
               if outcome == "failure":
                   problems.append(f"{name} found something. Open its step in the 'Run the checks' job for the details.")

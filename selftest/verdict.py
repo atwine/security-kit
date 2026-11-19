@@ -37,37 +37,97 @@ UNIT_TESTS = {
 }
 
 
+CLEAN_JOBS = {"clean": CODE_CHECKS, "site-clean": SITE_CHECKS}
+
+
+def checks_of(job: str) -> tuple[str, ...]:
+    return SITE_CHECKS if job.startswith("site-") else CODE_CHECKS
+
+
+def short(items: list[str], limit: int = 2) -> str:
+    shown = "; ".join(item[:120] for item in items[:limit])
+    return shown + (f" (and {len(items) - limit} more)" if len(items) > limit else "")
+
+
 def decide(needs: dict) -> tuple[list[str], list[str]]:
-    """Return (problems, report lines) for one self-test run."""
+    """Return (problems, report lines) for one self-test run.
 
-    def results(job):
-        raw = needs[job].get("outputs", {}).get("results") or "{}"
-        return json.loads(raw)
+    The run passes only when every job finished; the clean app passes every
+    check with nothing reported; each planted defect fails its own check and
+    that check's report names the planted item; and in each defect run every
+    other check passes with nothing reported.
+    """
+    problems = []
+    known = set(CLEAN_JOBS) | {job for job, _, _ in EXPECTED.values()} | set(UNIT_TESTS)
+    for job in sorted(set(needs) - known):
+        problems.append(f"{job}: the verdict doesn't know this job; add it to EXPECTED in selftest/verdict.py")
 
-    problems, rows = [], []
-    for job in ("clean", "site-clean"):
-        found = results(job)
-        if not found:
-            problems.append(f"{job}: no results (the job didn't finish)")
-        for check, outcome in found.items():
-            if outcome != "success":
-                problems.append(f"clean app: {check} gave {outcome}, expected success")
-    for defect, (job, check, _planted) in EXPECTED.items():
-        outcome = results(job).get(check)
-        if outcome is None:
-            verdict = "not built yet"
-        elif outcome == "failure":
+    def read(job: str):
+        """(results, evidence) of a scan job, or None when the job is missing or unreadable."""
+        if job not in needs:
+            problems.append(f"{job}: the job is missing from the self-test")
+            return None
+        if needs[job].get("result") != "success":
+            problems.append(f"{job}: the job ended with '{needs[job].get('result')}', expected 'success'")
+        outputs = needs[job].get("outputs") or {}
+        try:
+            return json.loads(outputs.get("results") or "{}"), json.loads(outputs.get("evidence") or "{}")
+        except ValueError:
+            problems.append(f"{job}: its results or evidence aren't readable JSON")
+            return None
+
+    def must_pass(job: str, check: str, results: dict, evidence: dict, who: str) -> None:
+        outcome = results.get(check) or "no result"
+        if outcome != "success":
+            problems.append(f"{who}: {check} gave '{outcome}', expected 'success'")
+        elif evidence.get(check):
+            problems.append(f"{who}: {check} passed but reported {short(evidence[check])}")
+
+    for job, checks in CLEAN_JOBS.items():
+        data = read(job)
+        if data:
+            for check in checks:
+                must_pass(job, check, *data, who=f"clean app ({job})")
+
+    rows = []
+    for defect, (job, check, planted) in EXPECTED.items():
+        data = read(job)
+        if data is None:
+            rows.append(f"| {defect} | {check} | NO RESULT | |")
+            continue
+        results, evidence = data
+        outcome = results.get(check) or "no result"
+        found = evidence.get(check) or []
+        proof = [item for item in found if any(name in item for name in planted)]
+        unnamed = [name for name in planted if not any(name in item for item in found)]
+        if outcome == "failure" and not unnamed:
             verdict = "CAUGHT"
+        elif outcome == "failure":
+            verdict = "NOT PROVEN"
+            problems.append(
+                f"{defect}: {check} failed, but its report doesn't name {', '.join(unnamed)}"
+                + (f"; it reported {short(found)}" if found else "; it reported nothing")
+            )
         else:
             verdict = f"MISSED ({outcome})"
-            problems.append(f"{defect}: {check} gave {outcome}, expected failure")
-        rows.append(f"| {defect} | {check} | {verdict} |")
-    caught = sum("CAUGHT" in row for row in rows)
-    lines = ["| Planted defect | Check | Result |", "|---|---|---|", *rows, "", f"Caught {caught} of {len(rows)}."]
+            problems.append(f"{defect}: {check} gave '{outcome}', expected 'failure'")
+        for other in checks_of(job):
+            if other != check:
+                must_pass(job, other, results, evidence, who=f"{defect} (only {check} should fail)")
+        rows.append(f"| {defect} | {check} | {verdict} | {short(proof).replace('|', '/')} |")
+
+    caught = sum("| CAUGHT |" in row for row in rows)
+    lines = [
+        "| Planted defect | Check | Result | What the check's report named |",
+        "|---|---|---|---|",
+        *rows,
+        "",
+        f"Caught {caught} of {len(EXPECTED)}.",
+    ]
     for job, label in UNIT_TESTS.items():
-        result = needs[job]["result"]
+        result = needs.get(job, {}).get("result", "missing")
         if result != "success":
-            problems.append(f"{job}: its tests gave {result}, expected success")
+            problems.append(f"{job}: its tests gave '{result}', expected 'success'")
         lines.append(f"{label}: {result}.")
     return problems, lines
 

@@ -1,6 +1,6 @@
 """Check that every library and GitHub action is pinned to one exact version.
 
-    python checks/pins.py [folder]
+    python checks/pins.py [folder] [--report findings.json]
 
 Fails (exit 1) when it finds:
 - a Python requirement without an exact version (`==`), so each install can
@@ -17,8 +17,12 @@ Warns, without failing, about Dockerfile `FROM` lines without a digest.
 
 The folder (default: the repository root) limits the Python and JavaScript
 checks. GitHub workflows are always read from `.github/workflows/`.
+`--report` also writes the findings to a JSON file, which the kit's
+self-test reads.
 """
 
+import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -121,7 +125,11 @@ def warn_dockerfiles(root: Path) -> list[str]:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
+    parser = argparse.ArgumentParser(description="Check that libraries and actions are pinned to exact versions.")
+    parser.add_argument("folder", nargs="?", default=".")
+    parser.add_argument("--report", help="also write the findings to this JSON file")
+    args = parser.parse_args()
+    root = Path(args.folder)
     findings: list[str] = []
     for path in files(root, "*requirements*.txt"):
         check_requirements(path, findings)
@@ -132,6 +140,8 @@ def main() -> int:
     for finding in findings:
         print(finding)
     print(f"{len(findings)} unpinned item(s)" if findings else "Everything is pinned.")
+    if args.report:
+        Path(args.report).write_text(json.dumps(findings, indent=2), encoding="utf-8")
     return 1 if findings else 0
 
 
