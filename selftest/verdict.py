@@ -15,15 +15,17 @@ CODE_CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_librar
 SITE_CHECKS = ("site_headers",)
 
 # Planted defect -> (job, the check that must catch it, what that check's
-# report must name to prove it caught the planted item).
+# report must name to prove it caught the planted item). Each text must
+# appear in the report; none holds a version Dependabot could change.
 EXPECTED = {
     "secret": ("secret", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "vulnerable-library": ("vulnerable-library", "python_libraries", ("urllib3==1.26.4",)),
-    "node-library": ("node-library", "node_libraries", ("lodash",)),
+    "node-library": ("node-library", "node_libraries", ("lodash (", "GHSA-")),
     "risky-code": ("risky-code", "risky_code", ("selftest/fixture-app/run_command.py",)),
-    "unpinned-library": ("unpinned-library", "pins", ("fastapi>=0.165.0",)),
+    "unpinned-library": ("unpinned-library", "pins", ("selftest/fixture-app/requirements.txt", "`fastapi>=")),
     "unruled-route": ("unruled-route", "access_rules", ("/admin/export",)),
-    "missing-headers": ("site-missing-headers", "site_headers", ("10038", "10020", "10021")),
+    # ZAP rule numbers, each followed by the space before the rule's name.
+    "missing-headers": ("site-missing-headers", "site_headers", ("10038 ", "10020 ", "10021 ")),
     # Ways around the gate: each must still be caught by its check.
     "forge-verdict": ("forge-verdict", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
@@ -129,6 +131,11 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
         if result != "success":
             problems.append(f"{job}: its tests gave '{result}', expected 'success'")
         lines.append(f"{label}: {result}.")
+    lines.append(
+        f"{len(problems)} problem(s), listed as errors below."
+        if problems
+        else "Every job finished, the clean app reported nothing, and every other check passed in each defect run."
+    )
     return problems, lines
 
 

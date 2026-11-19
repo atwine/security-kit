@@ -46,13 +46,15 @@
   cleanly, so pip-audit really looks it up. A planted lodash 4.17.15 lockfile
   gives npm audit its first test. Caught 10 of 10.
 - Each check also writes its tool's report to the runner's temporary folder.
-  npm audit and pip-audit now print a short list of what they found (from
-  `checks/findings.py`) instead of their own table, because they write JSON.
-  `checks/pins.py` takes `--report`.
-- `scans.yml` and `site-scan.yml` have a new `evidence` output. Only the
-  kit's own self-test fills it; it never decides a project's verdict.
-- The code checks' verdict reads a fixed list of six checks, so a check that
-  never reported shows as "no result" and fails.
+  npm audit and pip-audit write JSON now, so their steps print what they
+  found through `checks/findings.py`: each vulnerable package with its
+  advisories, links and fixed versions. `checks/pins.py` takes `--report`.
+- `scans.yml` and `site-scan.yml` have a new `evidence` output. It's filled
+  only in the kit's own repository, for the self-test, and never decides a
+  project's verdict.
+- The code checks' verdict judges every output of the checks job except
+  `evidence`, so a check added later is judged too, and it fails when the
+  checks job reported nothing.
 
 ## v0.1.0 (2026-11-19), test release
 

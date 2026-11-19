@@ -42,10 +42,24 @@ PINS = ["selftest/fixture-app/requirements.txt:1: `fastapi>=0.165.0` isn't pinne
 NPM = {
     "auditReportVersion": 2,
     "vulnerabilities": {
-        "lodash": {"name": "lodash", "severity": "high", "range": "<=4.17.23", "via": [{"title": "Command Injection in lodash"}]},
-        "minimist": {"name": "minimist", "severity": "moderate", "range": "<1.2.6", "via": []},
+        "lodash": {
+            "name": "lodash",
+            "severity": "high",
+            "range": "<=4.17.23",
+            "via": [
+                {"source": 1094500, "title": "Command Injection in lodash", "url": "https://github.com/advisories/GHSA-35jh-r3h4-6jhm", "severity": "high"},
+                {"source": 1094499, "title": "Prototype Pollution in lodash", "url": "https://github.com/advisories/GHSA-p6mc-m468-83gw", "severity": "high"},
+            ],
+        },
+        "minimist": {
+            "name": "minimist",
+            "severity": "moderate",
+            "range": "<1.2.6",
+            "via": [{"source": 1096465, "title": "Prototype Pollution in minimist", "url": "https://github.com/advisories/GHSA-xvch-5gv4-984h"}],
+        },
+        "wrapper": {"name": "wrapper", "severity": "high", "range": "1.0.0", "via": ["lodash"]},
     },
-    "metadata": {"vulnerabilities": {"high": 1, "moderate": 1, "total": 2}},
+    "metadata": {"vulnerabilities": {"high": 2, "moderate": 1, "total": 3}},
 }
 NPM_ERROR = {"error": {"code": "ENOLOCK", "summary": "This command requires an existing lockfile.", "detail": ""}}
 PIP_AUDIT = {
@@ -56,7 +70,9 @@ PIP_AUDIT = {
             "version": "1.26.4",
             "vulns": [
                 {"id": "PYSEC-2021-108", "fix_versions": ["1.26.5"], "aliases": ["CVE-2021-33503"]},
+                {"id": "PYSEC-2021-108", "fix_versions": ["1.26.5"], "aliases": ["CVE-2021-33503"]},
                 {"id": "GHSA-v845-jxx5-vc9f", "fix_versions": ["1.26.17"], "aliases": ["CVE-2023-43804"]},
+                {"id": "PYSEC-2026-0001", "fix_versions": [], "aliases": []},
             ],
         },
         {"name": "private-package", "skip_reason": "Dependency not found on PyPI"},
@@ -89,7 +105,9 @@ ZAP_RULES = "# comment\n10038\tFAIL\t(Content Security Policy (CSP) Header Not S
 
 class Readers(unittest.TestCase):
     def setUp(self):
-        self.folder = Path(tempfile.mkdtemp())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
 
     def write(self, name, data):
         path = self.folder / name
@@ -108,16 +126,19 @@ class Readers(unittest.TestCase):
     def test_pins_returns_its_own_findings(self):
         self.assertEqual(findings.pins(self.write("pins.json", PINS)), PINS)
 
-    def test_npm_keeps_only_what_fails_the_check(self):
-        self.assertEqual(findings.npm(self.write("npm-audit.json", NPM)), ["lodash (high, <=4.17.23)"])
+    def test_npm_names_each_failing_package_and_its_advisories(self):
+        self.assertEqual(
+            findings.npm(self.write("npm-audit.json", NPM)),
+            ["lodash (high, <=4.17.23): GHSA-35jh-r3h4-6jhm, GHSA-p6mc-m468-83gw", "wrapper (high, 1.0.0): through lodash"],
+        )
 
     def test_an_npm_error_is_not_a_finding(self):
         self.assertEqual(findings.npm(self.write("npm-audit.json", NPM_ERROR)), [])
 
-    def test_pip_audit_names_each_vulnerable_package_and_its_advisories(self):
+    def test_pip_audit_names_each_vulnerable_package_and_its_advisories_once(self):
         self.assertEqual(
             findings.pip_audit(self.write("pip-audit-1.json", PIP_AUDIT)),
-            ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f"],
+            ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f, PYSEC-2026-0001"],
         )
 
     def test_junit_names_each_failing_test_and_its_first_message_line(self):
@@ -145,7 +166,7 @@ class Readers(unittest.TestCase):
         evidence = findings.code_evidence(self.folder)
         self.assertEqual(sorted(evidence), sorted(["secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules"]))
         self.assertEqual(evidence["secrets"], ["selftest/fixture-app/settings_local.py:1 (github-pat)"])
-        self.assertEqual(evidence["python_libraries"], ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f"])
+        self.assertEqual(evidence["python_libraries"], ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f, PYSEC-2026-0001"])
         self.assertEqual(evidence["risky_code"], [])
 
     def test_site_evidence_reads_the_scan_folder(self):
@@ -164,23 +185,33 @@ class Readers(unittest.TestCase):
         self.assertEqual(len(out.getvalue().strip().splitlines()), 1)
         self.assertEqual(json.loads(out.getvalue())["secrets"], ["selftest/fixture-app/settings_local.py:1 (github-pat)"])
 
-    def test_show_lists_findings_for_people(self):
+    def show(self, tool, report):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertEqual(findings.main(["show", "npm", str(self.write("npm-audit.json", NPM))]), 0)
-        self.assertIn("lodash (high, <=4.17.23)", out.getvalue())
+            self.assertEqual(findings.main(["show", tool, str(report)]), 0)
+        return out.getvalue()
+
+    def test_show_lists_npm_advisories_with_links_for_people(self):
+        text = self.show("npm", self.write("npm-audit.json", NPM))
+        self.assertIn("3 packages with known holes (2 high or critical, which fail this check)", text)
+        self.assertIn("Command Injection in lodash: https://github.com/advisories/GHSA-35jh-r3h4-6jhm", text)
+        self.assertIn("minimist (moderate, <1.2.6)", text)
+        self.assertIn("through lodash", text)
+
+    def test_show_lists_pip_audit_advisories_once_with_fixed_versions(self):
+        text = self.show("pip-audit", self.write("pip-audit-1.json", PIP_AUDIT))
+        self.assertIn("1 package with known holes", text)
+        self.assertEqual(text.count("PYSEC-2021-108 (fixed in 1.26.5)"), 1)
+        self.assertIn("PYSEC-2026-0001 (no fixed version yet)", text)
 
     def test_show_explains_an_npm_error(self):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            findings.main(["show", "npm", str(self.write("npm-audit.json", NPM_ERROR))])
-        self.assertIn("This command requires an existing lockfile.", out.getvalue())
+        self.assertIn("This command requires an existing lockfile.", self.show("npm", self.write("npm-audit.json", NPM_ERROR)))
 
     def test_show_explains_a_missing_pip_audit_report(self):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            findings.main(["show", "pip-audit", str(self.folder / "pip-audit-9.json")])
-        self.assertIn("no report", out.getvalue())
+        self.assertIn("wrote no report", self.show("pip-audit", self.folder / "pip-audit-9.json"))
+
+    def test_show_says_when_a_report_is_unreadable(self):
+        self.assertIn("unreadable report", self.show("pip-audit", self.write("pip-audit-1.json", {"dependencies": "oops"})))
 
 
 if __name__ == "__main__":

@@ -4,10 +4,11 @@
     python findings.py evidence-site <ZAP folder>       # the same for the website scan
     python findings.py show npm|pip-audit <report>      # a short list for people
 
-The evidence commands run only when the kit tests itself: the self-test
+The evidence commands run only in the kit's own repository. Its self-test
 uses them to prove each check caught the defect it planted, not something
-else. The show command prints npm audit's and pip-audit's findings for
-everyone, because those tools write JSON instead of a table.
+else. The show command prints npm audit's and pip-audit's findings, with
+advisory links and fixed versions, for every project, because those tools
+now write JSON instead of a table.
 
 A missing report means nothing was found. A report that can't be read is
 listed as "unreadable report: <name>", so it never counts as a clean result.
@@ -60,15 +61,35 @@ def pins(path: Path) -> list[str]:
     return _read(path, lambda data: [str(finding) for finding in data])
 
 
+_ADVISORY_ID = re.compile(r"GHSA(?:-[0-9a-z]{4}){3}")
+
+
+def _npm_advisories(entry: dict) -> list[tuple[str, str, str]]:
+    """(id, title, url) of each advisory npm lists for a package; string entries name other packages."""
+    found = []
+    for via in entry.get("via", []):
+        if isinstance(via, dict):
+            url = str(via.get("url", ""))
+            match = _ADVISORY_ID.search(url)
+            found.append((match.group(0) if match else str(via.get("source", "?")), str(via.get("title", "")), url))
+    return found
+
+
+def _unique(items) -> list:
+    return list(dict.fromkeys(items))
+
+
 def npm(path: Path) -> list[str]:
     def extract(data):
         if "error" in data:
             return []
-        return [
-            f"{name} ({entry['severity']}, {entry.get('range', '?')})"
-            for name, entry in sorted(data.get("vulnerabilities", {}).items())
-            if entry["severity"] in FAILING_NPM_SEVERITIES
-        ]
+        found = []
+        for name, entry in sorted(data.get("vulnerabilities", {}).items()):
+            if entry["severity"] in FAILING_NPM_SEVERITIES:
+                ids = _unique(advisory_id for advisory_id, _, _ in _npm_advisories(entry))
+                via = ", ".join(ids) or "through " + ", ".join(str(v) for v in entry.get("via", []))
+                found.append(f"{name} ({entry['severity']}, {entry.get('range', '?')}): {via}")
+        return found
 
     return _read(path, extract)
 
@@ -77,7 +98,7 @@ def pip_audit(path: Path) -> list[str]:
     return _read(
         path,
         lambda data: [
-            f"{dep['name']}=={dep['version']}: {', '.join(vuln['id'] for vuln in dep['vulns'])}"
+            f"{dep['name']}=={dep['version']}: {', '.join(_unique(vuln['id'] for vuln in dep['vulns']))}"
             for dep in data["dependencies"]
             if dep.get("vulns")
         ],
@@ -154,31 +175,59 @@ def site_evidence(folder: Path) -> dict[str, list[str]]:
     return {"site_headers": zap(folder / "report.json", folder / "rules.conf")}
 
 
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
+def _show_npm(data: dict) -> None:
+    if "error" in data:
+        error = data["error"]
+        print(f"npm audit couldn't check: {error.get('summary') if isinstance(error, dict) else error}")
+        return
+    packages = sorted((data.get("vulnerabilities") or {}).items())
+    if not packages:
+        print("npm audit found no known holes.")
+        return
+    failing = sum(entry.get("severity") in FAILING_NPM_SEVERITIES for _, entry in packages)
+    print(f"npm audit found {_plural(len(packages), 'package')} with known holes ({failing} high or critical, which fail this check):")
+    for name, entry in packages:
+        print(f"  {name} ({entry.get('severity', '?')}, {entry.get('range', '?')})")
+        advisories = _npm_advisories(entry)
+        for advisory_id, title, url in advisories:
+            print(f"    {title or advisory_id}: {url or advisory_id}")
+        if not advisories:
+            print(f"    through {', '.join(str(v) for v in entry.get('via', []))}")
+
+
+def _show_pip_audit(data: dict) -> None:
+    vulnerable = [dep for dep in data["dependencies"] if dep.get("vulns")]
+    if not vulnerable:
+        print("pip-audit found no known holes.")
+        return
+    print(f"pip-audit found {_plural(len(vulnerable), 'package')} with known holes:")
+    for dep in vulnerable:
+        print(f"  {dep['name']} {dep['version']}")
+        for vuln_id in _unique(vuln["id"] for vuln in dep["vulns"]):
+            fixes = _unique(v for vuln in dep["vulns"] if vuln["id"] == vuln_id for v in vuln.get("fix_versions") or [])
+            print(f"    {vuln_id} ({'fixed in ' + ', '.join(fixes) if fixes else 'no fixed version yet'})")
+
+
 def show(tool: str, report: Path) -> None:
-    if tool == "npm":
-        data = _load(report)
-        if isinstance(data, dict) and "error" in data:
-            error = data["error"]
-            print(f"npm audit couldn't check: {error.get('summary') if isinstance(error, dict) else error}")
-            return
-        items, what = npm(report), "high or critical holes"
-    elif tool == "pip-audit":
-        if not report.is_file():
-            print("pip-audit wrote no report, so it stopped before checking. Its messages are above.")
-            return
-        items, what = pip_audit(report), "known holes"
-    else:
+    """Print what npm audit or pip-audit reported, for people reading the log."""
+    if tool not in ("npm", "pip-audit"):
         raise SystemExit(f"unknown tool {tool!r}")
-    unreadable = [item for item in items if item.startswith("unreadable report")]
-    if unreadable:
-        print(f"{tool}: {unreadable[0]}")
+    name = "npm audit" if tool == "npm" else "pip-audit"
+    data = _load(report)
+    if data is None:
+        print(f"{name} wrote no report, so it stopped before checking. Its messages are above.")
         return
-    if not items:
-        print(f"Nothing with {what}.")
+    if isinstance(data, str):
+        print(f"{name}: {data}")
         return
-    print(f"{len(items)} with {what}:")
-    for item in items:
-        print(f"  {item}")
+    try:
+        (_show_npm if tool == "npm" else _show_pip_audit)(data)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        print(f"{name}: unreadable report: {report.name}")
 
 
 def main(argv: list[str]) -> int:

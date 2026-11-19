@@ -90,6 +90,19 @@ class Verdict(unittest.TestCase):
         set_evidence(needs, "site-missing-headers", "site_headers", ["10038 Content Security Policy (CSP) Header Not Set"])
         self.assert_fails(needs, "missing-headers")
 
+    def test_a_newer_fastapi_in_the_fixture_still_counts(self):
+        # Dependabot updates the fixture's libraries, so the planted loose pin
+        # can carry any fastapi version.
+        needs = good_run()
+        line = "selftest/fixture-app/requirements.txt:1: `fastapi>=0.170.2` isn't pinned to one exact version (use ==)"
+        set_evidence(needs, "unpinned-library", "pins", [line])
+        self.assertEqual(verdict.decide(needs)[0], [])
+
+    def test_a_similar_package_name_does_not_count(self):
+        needs = good_run()
+        set_evidence(needs, "node-library", "node_libraries", ["lodash-es (high, <=4.17.21): GHSA-aaaa-bbbb-cccc"])
+        self.assert_fails(needs, "node-library")
+
     def test_another_check_failing_in_a_defect_run_fails(self):
         needs = good_run()
         set_result(needs, "vulnerable-library", "access_rules", "failure")

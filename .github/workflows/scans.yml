@@ -52,7 +52,7 @@ on:
           "python_libraries": "${{ jobs.scan.outputs.python_libraries }}",
           "access_rules": "${{ jobs.scan.outputs.access_rules }}"}
       evidence:
-        description: "Kit self-test only (empty for every other repository): JSON check name -> what that check's tool reported"
+        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON check name -> what that check's tool reported"
         value: ${{ jobs.scan.outputs.evidence }}
 
 permissions:
@@ -64,9 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The six check values are GitHub's own record of how each check step
-    # ended; no script writes them. evidence is written by a script and is
-    # filled only for the kit's own self-test, which never uses it to decide
-    # a project's verdict.
+    # ended; no script writes them. evidence is written by a script, is
+    # filled only in the kit's own repository for its self-test, and never
+    # decides a project's verdict.
     outputs:
       secrets: ${{ steps.secrets.outcome }}
       risky_code: ${{ steps.risky_code.outcome }}
@@ -122,7 +122,7 @@ jobs:
             echo "::error::self-test-defect is for the kit's own self-test only."
             exit 1
           fi
-          python "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
+          python -I "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
           git add -A -- "$WD"
           git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
 
@@ -211,17 +211,18 @@ jobs:
           if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
           python -m pytest -q -p no:cacheprovider --junitxml "$RUNNER_TEMP/reports/access-tests.xml" "$TESTS"
 
-      # Kit self-test only: list what each check's tool reported, so the
-      # self-test can prove each catch is the defect it planted. Every other
-      # repository skips this, and the verdict below never reads it.
+      # In the kit's own repository only: list what each check's tool
+      # reported, so the self-test can prove each catch is the defect it
+      # planted. Every other repository skips this, and the verdict below
+      # never reads it.
       - id: evidence
-        name: What each check reported (kit self-test only)
+        name: What each check reported (kit's own repository only)
         if: always()
         env:
           REPO: ${{ github.repository }}
           KIT_REPO: ${{ job.workflow_repository }}
         run: |
-          if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own self-test uses this."; exit 0; fi
+          if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own repository uses this."; exit 0; fi
           evidence=$(python -I "$RUNNER_TEMP/security-kit/checks/findings.py" evidence-code "$RUNNER_TEMP/reports")
           echo "$evidence"
           echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
@@ -242,18 +243,19 @@ jobs:
           REPO: ${{ github.repository }}
           KIT_REPO: ${{ job.workflow_repository }}
         run: |
-          python3 - <<'EOF'
+          python3 -I - <<'EOF'
           import json, os, sys
 
-          CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules")
-          results = json.loads(os.environ["RESULTS"] or "{}")
+          # Every output of the checks job is a check's recorded outcome,
+          # except evidence (the kit's self-test reads that). Judging every
+          # output means a check added later is judged too.
+          results = {name: outcome for name, outcome in json.loads(os.environ["RESULTS"] or "{}").items() if name != "evidence"}
           asked_report_only = os.environ["ASKED_REPORT_ONLY"] == "true"
           report_only = asked_report_only and os.environ["REPO"] == os.environ["KIT_REPO"]
 
           rows = ["| Check | Result |", "|---|---|"]
-          problems = []
-          for name in CHECKS:
-              outcome = results.get(name) or ""
+          problems = [] if results else ["The checks job reported no results."]
+          for name, outcome in sorted(results.items()):
               rows.append(f"| {name} | {'found something' if outcome == 'failure' else (outcome or 'no result')} |")
               if outcome == "failure":
                   problems.append(f"{name} found something. Open its step in the 'Run the checks' job for the details.")

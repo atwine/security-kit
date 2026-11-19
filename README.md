@@ -43,7 +43,10 @@ name the planted item, so a crash or an unrelated error doesn't count as a
 catch. Every other check must still pass in that run. The clean app must
 pass everything with nothing reported, and a missing result fails the run.
 The rules live in [`selftest/verdict.py`](selftest/verdict.py), which has its
-own tests. The fake token is generated during the run and never stored. The
+own tests. The website scan's rules for HSTS, cookie flags and cross-site
+access have no planted defect yet: they can't fire against the plain-HTTP
+scan, and a later change fixes that. The fake token is generated during the
+run and never stored. The
 same check runs the watcher's tests: a planted change in each source must be
 reported with a source link, and a quiet month or a second run must propose
 nothing.
