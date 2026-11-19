@@ -133,7 +133,7 @@ jobs:
           CONFIG: ${{ inputs.semgrep-config }}
         run: |
           docker run --rm -v "$PWD:/src" -w /src \
-            semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b \
+            semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
             semgrep scan --config "$CONFIG" --error --metrics off --quiet --exclude .security-kit "$WD"
 
       - id: pins

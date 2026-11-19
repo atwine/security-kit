@@ -133,7 +133,7 @@ jobs:
           mkdir -p zap && chmod 777 zap
           if [ -n "$RULES" ]; then cp "$RULES" zap/rules.conf; else cp .security-kit/checks/zap-baseline.conf zap/rules.conf; fi
           docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
-            ghcr.io/zaproxy/zaproxy:2.16.1@sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
             zap-baseline.py -t "$URL" -c rules.conf -J report.json -I
 
       - name: List what ZAP found

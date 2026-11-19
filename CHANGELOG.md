@@ -11,6 +11,8 @@
 - `RELEASING.md`: how changes reach `main` and how a version is released.
 - `main` now takes changes only through pull requests whose self-test and
   security checks pass; release tags can't be moved or deleted.
+- Semgrep 1.186.0 (was 1.179.0) and ZAP 2.17.0 (was 2.16.1), from the
+  watcher's first `kit-update` issue (#2).
 
 ## v0.1.0 (2026-11-19), test release
 
