@@ -70,6 +70,13 @@ jobs:
       fail-on-findings: false
       self-test-defect: forge-verdict
 
+  mask-failure:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: mask-failure
+
   hidden-folder-code:
     uses: ./.github/workflows/scans.yml
     with:
@@ -101,6 +108,20 @@ jobs:
       python-version: "3.12"
       setup-command: pip install -r requirements.txt
       start-command: python -m uvicorn app:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      fail-on-findings: false
+      self-test-defect: missing-headers
+
+  # The app's start command also writes SHELLOPTS=noexec to $GITHUB_ENV, as
+  # a library's install or start-up code could. A bash step that doesn't
+  # guard against it then reads its script, runs nothing and passes.
+  site-env-bypass:
+    uses: ./.github/workflows/site-scan.yml
+    with:
+      working-directory: selftest/fixture-app
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: echo SHELLOPTS=noexec >> "$GITHUB_ENV"; python -m uvicorn app:app --host 127.0.0.1 --port 8000
       url: http://127.0.0.1:8000/
       fail-on-findings: false
       self-test-defect: missing-headers
@@ -141,8 +162,8 @@ jobs:
   verdict:
     name: Each planted defect is caught, and the clean app passes
     needs: [clean, secret, vulnerable-library, node-library, risky-code, unpinned-library, unruled-route,
-            forge-verdict, hidden-folder-code, env-folder-pin, site-clean, site-missing-headers, watcher,
-            self-test-rules]
+            forge-verdict, mask-failure, hidden-folder-code, env-folder-pin, site-clean, site-missing-headers,
+            site-env-bypass, watcher, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

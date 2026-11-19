@@ -234,43 +234,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # A fresh machine: none of the project's code has run here.
-      - name: Decide from GitHub's record of each check
+      # A fresh machine: none of the project's code has run here. Only the
+      # kit's own files are fetched, at the same version as this workflow.
+      - name: Fetch the kit's decision script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: kit
+          persist-credentials: false
+
+      - name: Decide from GitHub's record of each check (checks/gate.py)
         env:
-          RESULTS: ${{ toJSON(needs.scan.outputs) }}
-          SCAN: ${{ needs.scan.result }}
+          NEEDS: ${{ toJSON(needs) }}
           ASKED_REPORT_ONLY: ${{ !inputs.fail-on-findings }}
           REPO: ${{ github.repository }}
           KIT_REPO: ${{ job.workflow_repository }}
-        run: |
-          python3 -I - <<'EOF'
-          import json, os, sys
-
-          # Every output of the checks job is a check's recorded outcome,
-          # except evidence (the kit's self-test reads that). Judging every
-          # output means a check added later is judged too.
-          results = {name: outcome for name, outcome in json.loads(os.environ["RESULTS"] or "{}").items() if name != "evidence"}
-          asked_report_only = os.environ["ASKED_REPORT_ONLY"] == "true"
-          report_only = asked_report_only and os.environ["REPO"] == os.environ["KIT_REPO"]
-
-          rows = ["| Check | Result |", "|---|---|"]
-          problems = [] if results else ["The checks job reported no results."]
-          for name, outcome in sorted(results.items()):
-              rows.append(f"| {name} | {'found something' if outcome == 'failure' else (outcome or 'no result')} |")
-              if outcome == "failure":
-                  problems.append(f"{name} found something. Open its step in the 'Run the checks' job for the details.")
-              elif outcome != "success":
-                  problems.append(f"{name} did not run ({outcome or 'no result'}).")
-          if os.environ["SCAN"] != "success":
-              problems.append(f"The checks job ended with '{os.environ['SCAN']}', so some checks may not have run.")
-
-          table = "\n".join(rows)
-          print(table)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write(table + "\n")
-          if asked_report_only and not report_only:
-              print("::warning::fail-on-findings: false only applies to the kit's own self-test. This project's results still decide the check.")
-          for problem in problems:
-              print(("::notice::" if report_only else "::error::") + problem)
-          sys.exit(0 if report_only or not problems else 1)
-          EOF
+        run: python3 -I kit/checks/gate.py

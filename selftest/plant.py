@@ -106,6 +106,16 @@ def forge_verdict(app: Path) -> None:
     Path("json.py").write_text(FORGED_JSON, encoding="utf-8")
 
 
+def mask_failure(app: Path) -> None:
+    # A real secret for gitleaks to find, plus project code that registers the
+    # word "failure" as a secret. GitHub then drops every job output holding
+    # that word, which hides failed checks from the record the verdict reads.
+    # The access-rule check's `python -m pytest` runs this file instead of
+    # pytest, because -m looks in the current folder first.
+    secret(app)
+    (app / "pytest.py").write_text('print("::add-mask::failure")\n', encoding="utf-8")
+
+
 def hidden_folder_code(app: Path) -> None:
     # The risky code again, inside a folder named like the kit's own checkout.
     hidden = app / ".security-kit"
@@ -136,6 +146,7 @@ DEFECTS = {
     "missing-headers": missing_headers,
     "unruled-route": unruled_route,
     "forge-verdict": forge_verdict,
+    "mask-failure": mask_failure,
     "hidden-folder-code": hidden_folder_code,
     "env-folder-pin": env_folder_pin,
 }

@@ -28,6 +28,8 @@ EXPECTED = {
     "missing-headers": ("site-missing-headers", "site_headers", ("10038 ", "10020 ", "10021 ")),
     # Ways around the gate: each must still be caught by its check.
     "forge-verdict": ("forge-verdict", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "mask-failure": ("mask-failure", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "env-bypass": ("site-env-bypass", "site_headers", ("10038 ", "10020 ", "10021 ")),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
     "env-folder-pin": ("env-folder-pin", "pins", ("selftest/fixture-app/env/requirements.txt",)),
 }
