@@ -1,0 +1,34 @@
+# Copy to .github/dependabot.yml in your project. Keep the entries your
+# project uses and point `directory` at the folder holding each manifest.
+#
+# target-branch: where update pull requests go. Use your integration branch
+#   (for example `development`), so updates follow your normal route to
+#   production instead of going straight at main.
+# cooldown: wait 7 days after a release before proposing it. Brand-new
+#   releases are sometimes malicious or broken; most are caught within days.
+#   Security updates for known holes are not delayed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: development
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: pip
+    directory: "/"
+    target-branch: development
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    target-branch: development
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

@@ -1,0 +1,30 @@
+# Copy to .github/workflows/security.yml in your project.
+# Replace KIT_SHA with the full commit SHA of a security-kit release and
+# KIT_VERSION with its tag. Dependabot then proposes newer releases.
+# Delete the website job if the project has no web server.
+name: security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, so newly published holes show up without a push
+
+permissions:
+  contents: read
+
+jobs:
+  code:
+    uses: atwine/security-kit/.github/workflows/scans.yml@KIT_SHA # KIT_VERSION
+    # with:
+    #   working-directory: backend          # if the app isn't at the repository root
+    #   access-tests: tests/test_access.py  # where access-guard wrote them
+
+  website:
+    uses: atwine/security-kit/.github/workflows/site-scan.yml@KIT_SHA # KIT_VERSION
+    with:
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      # rules-file: .github/zap-rules.conf  # your copy of checks/zap-baseline.conf, to accept a finding with a reason

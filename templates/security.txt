@@ -1,0 +1,7 @@
+# Serve this file at https://YOUR-SITE/.well-known/security.txt (RFC 9116).
+# Contact must be an address the organisation reads. Expires must be at
+# most a year ahead: put a reminder in the calendar to renew it.
+Contact: mailto:CONTACT-ADDRESS
+Expires: YYYY-MM-DDT00:00:00Z
+Preferred-Languages: en
+Policy: https://YOUR-SITE/security-policy

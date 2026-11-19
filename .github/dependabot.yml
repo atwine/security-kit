@@ -1,0 +1,16 @@
+# Keep the kit's own pinned actions current. A 7-day cooldown, because
+# brand-new releases are sometimes malicious or broken.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: pip
+    directory: "/selftest/fixture-app"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
