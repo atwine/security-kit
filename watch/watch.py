@@ -5,7 +5,9 @@ GitHub issue labelled kit-update that lists them, each with a source link:
 
 1. New releases of the scanners the kit pins inside its workflows (gitleaks,
    pip-audit, Semgrep, ZAP). Dependabot can't see these pins.
-2. New editions of the OWASP lists the checklist is built on.
+2. New editions of four of the five OWASP lists the checklist cites. The
+   fifth, the Top 10 for Agentic Applications, has no release feed, so
+   RELEASING.md checks it by hand before each release.
 3. Critical GitHub advisories for the frameworks the kit has templates for
    (FastAPI, Starlette, Next.js, React).
 4. Entries in CISA's list of actively exploited holes that name those

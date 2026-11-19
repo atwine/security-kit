@@ -21,9 +21,15 @@ Each change is a pull request. Merge it once its checks pass.
 ## Releasing
 
 1. Merge the pull requests that belong in the release.
-2. In one more pull request, add the version's entry to `CHANGELOG.md`:
-   what changed for projects, and anything a project must do.
-3. After it merges, tag that merge commit on `main` and push the tag:
+2. Look on OWASP's GenAI site (genai.owasp.org) for a newer edition of
+   the Top 10 for Agentic Applications. The watcher can't follow that
+   list, because its GitHub copy holds only working drafts. If there is a
+   newer edition, update the checklist items that cite it (`ASI` in the
+   Sources column) before releasing.
+3. In one more pull request, add the version's entry to `CHANGELOG.md`:
+   what changed for projects, and anything a project must do. If the
+   checklist changed, put the release's version in its version line.
+4. After it merges, tag that merge commit on `main` and push the tag:
 
    ```bash
    git switch main && git pull
@@ -38,7 +44,7 @@ Each change is a pull request. Merge it once its checks pass.
      a passing project;
    - **patch**: fixes and scanner updates.
 
-4. Projects pinned to an earlier release get a Dependabot pull request
+5. Projects pinned to an earlier release get a Dependabot pull request
    after their cooldown (7 days in the kit's template). It pins the new
    release's full commit SHA.
 

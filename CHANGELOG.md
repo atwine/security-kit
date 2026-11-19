@@ -11,6 +11,13 @@
 - `RELEASING.md`: how changes reach `main` and how a version is released.
 - `main` now takes changes only through pull requests whose self-test and
   security checks pass; release tags can't be moved or deleted.
+- Semgrep 1.186.0 (was 1.179.0) and ZAP 2.17.0 (was 2.16.1), from the
+  watcher's first `kit-update` issue (#2).
+- Checklist 0.2: SK-02 now says audits can't see a library copy that a
+  framework bundles inside itself, so projects also follow the
+  framework's own advisories (from #2).
+- `RELEASING.md` checks the OWASP Top 10 for Agentic Applications by hand
+  before each release, since the watcher can't follow it.
 
 ## v0.1.0 (2026-11-19), test release
 

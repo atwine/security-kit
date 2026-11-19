@@ -36,7 +36,9 @@ On the 1st of each month the watcher checks four sources, listed in
 
 - new releases of the scanners the kit pins inside its workflows, which
   Dependabot can't see;
-- new editions of the OWASP lists the checklist is built on;
+- new editions of four of the five OWASP lists the checklist cites. The
+  fifth, the Top 10 for Agentic Applications, has no release feed, so
+  [RELEASING.md](RELEASING.md) checks it by hand before each release;
 - critical GitHub advisories for FastAPI, Starlette, Next.js and React;
 - entries in CISA's list of actively exploited holes that name those
   stacks, Node.js, Python or PostgreSQL.
