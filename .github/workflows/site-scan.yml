@@ -8,14 +8,20 @@
 #
 # Two jobs. "Run the website scan" runs the app and ZAP and lets GitHub
 # record how the scan ended. "Website scan (security-kit, ZAP baseline)"
-# then decides pass or fail on a fresh machine, from that record. Require
-# that check in branch protection.
+# then decides pass or fail on a fresh machine, from that record; a missing
+# result fails. In branch protection, require "<your job's name> / Website
+# scan (security-kit, ZAP baseline)", for example "website / Website scan
+# (security-kit, ZAP baseline)".
 #
 # The scan has to run the project's app in the same job as ZAP, and GitHub's
-# runners give that code administrator rights. The kit sets the rules up
-# before any project code runs, checks them again just before the scan, and
-# calls bash and docker by their full paths, but a deliberately malicious app
-# or dependency could still interfere with the scan itself.
+# runners give that code administrator rights. The kit fetches itself before
+# the project, sets the rules up before any project code runs, and checks them
+# again just before the scan. The steps after the app starts ignore
+# environment lines the app or its libraries add (SHELLOPTS, imported bash
+# functions, loader and docker settings) and call commands by full path. A
+# deliberately malicious app or dependency with administrator rights could
+# still interfere with the scan itself, for example by changing the rules
+# file between the check and the scan or by replacing programs.
 #
 #   jobs:
 #     website:
@@ -100,10 +106,9 @@ jobs:
           echo "::error::security-kit can't run from $EVENT: that event checks out the base branch, not the change, so every change would pass. Call it from push or pull_request."
           exit 1
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+      # The kit first: actions/checkout empties a folder that exists without
+      # .git before fetching into it, so fetching the kit after the project
+      # would wipe a project folder named .security-kit.
       - name: Fetch the kit's own files, at the same version as this workflow
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,9 +117,17 @@ jobs:
           path: .security-kit
           persist-credentials: false
 
-      # Before any of the project's code runs: move the kit out of the
-      # project's folder, give ZAP its own folder, copy the rules there, and
-      # record their checksum.
+      - name: Move the kit's files out, before the project is checked out
+        env:
+          KIT: ${{ runner.temp }}/security-kit
+        run: mv .security-kit "$KIT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Before any of the project's code runs: give ZAP its own folder, copy
+      # the rules there, and record their checksum.
       - id: prepare
         name: Set up the scan's own folder and rules
         env:
@@ -122,7 +135,6 @@ jobs:
           ZAP_DIR: ${{ runner.temp }}/zap
           KIT: ${{ runner.temp }}/security-kit
         run: |
-          mv .security-kit "$KIT"
           mkdir -p "$ZAP_DIR"
           chmod 777 "$ZAP_DIR"
           if [ -n "$RULES" ]; then cp -- "$RULES" "$ZAP_DIR/rules.conf"; else cp -- "$KIT/checks/zap-baseline.conf" "$ZAP_DIR/rules.conf"; fi
@@ -174,30 +186,44 @@ jobs:
           cat "$RUNNER_TEMP/app.log"
           exit 1
 
-      # The project's code has run in this job by now, and a step can change
-      # the environment of later steps. So this step starts from a fixed bash,
-      # drops the variables that change what bash, docker or the dynamic
-      # loader do, checks the rules are the ones copied before any project
-      # code ran, and calls docker by its full path.
+      # The project's code has run in this job by now, and it can change the
+      # environment of later steps through $GITHUB_ENV. So this step and the
+      # two after it close the routes that need only an environment line:
+      # the loader variables are emptied for this step (a step's own env wins
+      # over $GITHUB_ENV), bash starts in privileged mode (-p: no imported
+      # functions, SHELLOPTS, BASHOPTS, BASH_ENV or ENV), and commands are
+      # called by full path. This step also gives docker a fresh, empty
+      # settings folder and checks the rules are the ones copied before any
+      # project code ran. Code with administrator rights can still interfere
+      # with the scan; see the note at the top.
       - id: site_headers
         name: ZAP baseline scan (looks only, sends no attacks)
         continue-on-error: true
-        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -eo pipefail {0}
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
         env:
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
           URL: ${{ inputs.url }}
           ZAP_DIR: ${{ runner.temp }}/zap
           RULES_SHA256: ${{ steps.prepare.outputs.rules_sha256 }}
         run: |
           export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-          echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | sha256sum -c --quiet -
+          DOCKER_CONFIG="$(/usr/bin/mktemp -d)"
+          export DOCKER_CONFIG
+          export DOCKER_HOST=unix:///var/run/docker.sock
+          echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | /usr/bin/sha256sum -c --quiet -
           /usr/bin/docker run --rm --network host -v "$ZAP_DIR:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
             zap-baseline.py -t "$URL" -c rules.conf -J report.json -I
 
       - name: List what ZAP found
         if: always()
-        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH /usr/bin/bash --noprofile --norc -eo pipefail {0}
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
         env:
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
           REPORT: ${{ runner.temp }}/zap/report.json
         run: |
           if [ ! -f "$REPORT" ]; then echo "No ZAP report."; exit 0; fi
@@ -219,8 +245,11 @@ jobs:
       - id: evidence
         name: What the scan reported (kit's own repository only)
         if: always()
-        shell: /usr/bin/env -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH /usr/bin/bash --noprofile --norc -eo pipefail {0}
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
         env:
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
           ZAP_DIR: ${{ runner.temp }}/zap
           KIT: ${{ runner.temp }}/security-kit
           REPO: ${{ github.repository }}

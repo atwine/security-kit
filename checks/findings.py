@@ -1,6 +1,6 @@
 """Read the reports the kit's checks write, and say what each one found.
 
-    python findings.py evidence-code <reports folder>   # one line of JSON: check -> findings
+    python findings.py evidence-code <reports folder> [check ...]   # one line of JSON: check -> findings
     python findings.py evidence-site <ZAP folder>       # the same for the website scan
     python findings.py show npm|pip-audit <report>      # a short list for people
 
@@ -160,15 +160,19 @@ def zap(report: Path, rules: Path) -> list[str]:
     )
 
 
-def code_evidence(folder: Path) -> dict[str, list[str]]:
-    return {
-        "secrets": gitleaks(folder / "gitleaks.json"),
-        "risky_code": semgrep(folder / "semgrep.json"),
-        "pins": pins(folder / "pins.json"),
-        "node_libraries": npm(folder / "npm-audit.json"),
-        "python_libraries": [item for report in sorted(folder.glob("pip-audit-*.json")) for item in pip_audit(report)],
-        "access_rules": junit(folder / "access-tests.xml"),
-    }
+CODE_READERS = {
+    "secrets": lambda folder: gitleaks(folder / "gitleaks.json"),
+    "risky_code": lambda folder: semgrep(folder / "semgrep.json"),
+    "pins": lambda folder: pins(folder / "pins.json"),
+    "node_libraries": lambda folder: npm(folder / "npm-audit.json"),
+    "python_libraries": lambda folder: [item for report in sorted(folder.glob("pip-audit-*.json")) for item in pip_audit(report)],
+    "access_rules": lambda folder: junit(folder / "access-tests.xml"),
+}
+
+
+def code_evidence(folder: Path, checks=None) -> dict[str, list[str]]:
+    """What each code check's report named; checks limits it to the ones a job ran."""
+    return {check: CODE_READERS[check](folder) for check in (checks or CODE_READERS)}
 
 
 def site_evidence(folder: Path) -> dict[str, list[str]]:
@@ -231,8 +235,8 @@ def show(tool: str, report: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) == 2 and argv[0] == "evidence-code":
-        print(json.dumps(code_evidence(Path(argv[1]))))
+    if len(argv) >= 2 and argv[0] == "evidence-code" and set(argv[2:]) <= set(CODE_READERS):
+        print(json.dumps(code_evidence(Path(argv[1]), argv[2:])))
     elif len(argv) == 2 and argv[0] == "evidence-site":
         print(json.dumps(site_evidence(Path(argv[1]))))
     elif len(argv) == 3 and argv[0] == "show":

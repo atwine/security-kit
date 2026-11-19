@@ -18,15 +18,22 @@ every project starts secure and stays current as security standards change.
 Both workflows load the kit's own scripts at the exact version the project
 pinned, so a project on one release always runs that release's checks.
 
-Each workflow has two jobs. The first runs the checks, and GitHub records
-how each check step ended. The second decides pass or fail on a fresh
-machine from that record, so a file or library in the project (a `json.py`,
-a package's start-up hook) can't fake the result. The kit's own files are
-moved out of the project's folder before any project code runs, and the
-steps that run project code (building packages, running its tests) come
-last. The website scan has to run the project's app in the same job as ZAP,
-so a deliberately malicious app could still interfere with that scan; see
-the note at the top of [`site-scan.yml`](.github/workflows/site-scan.yml).
+The code checks run in two jobs. gitleaks, Semgrep, the pin check and npm
+audit run on a machine where none of the project's code ever runs. pip-audit
+(which builds the project's Python packages) and the access-rule tests run
+on another, where that code can still interfere with those two checks.
+GitHub records how each check step ended, and a third job decides pass or
+fail on a fresh machine from that record ([`checks/gate.py`](checks/gate.py)).
+It expects a fixed list of results, and a missing or unknown one fails:
+GitHub silently drops a result whose text a step registered as a secret.
+Each job fetches the kit before the project, so a project folder can't be
+emptied by the kit's own fetch.
+
+The website scan has to run the project's app in the same job as ZAP. Its
+later steps ignore environment changes the app makes, but a deliberately
+malicious app with administrator rights could still interfere with that
+scan; see the note at the top of
+[`site-scan.yml`](.github/workflows/site-scan.yml).
 
 ## How the kit proves itself
 
@@ -82,9 +89,10 @@ Actions tab and turn it back on.
    `.github/workflows/security-scans.yml` and pin it to a release's full
    commit SHA. The `secure-start` skill in my skills repository does every
    step here.
-2. In the project's branch protection, require the checks named
-   "Security checks (security-kit)" and "Website scan (security-kit, ZAP
-   baseline)". These are the jobs that decide pass or fail.
+2. In the project's branch protection, require the two checks that decide
+   pass or fail. GitHub puts the name of the calling job in front, so with
+   the template they are "code / Security checks (security-kit)" and
+   "website / Website scan (security-kit, ZAP baseline)".
 3. Copy [`templates/dependabot.yml`](templates/dependabot.yml), so new kit
    releases arrive as update pull requests after the cooldown.
 4. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md).

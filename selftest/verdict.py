@@ -75,7 +75,13 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
             problems.append(f"{job}: the job ended with '{needs[job].get('result')}', expected 'success'")
         outputs = needs[job].get("outputs") or {}
         try:
-            return json.loads(outputs.get("results") or "{}"), json.loads(outputs.get("evidence") or "{}")
+            # scans.yml reports evidence from each of its checks jobs
+            # (evidence-read, evidence-run); site-scan.yml as one (evidence).
+            evidence = {}
+            for name, raw in sorted(outputs.items()):
+                if name.startswith("evidence"):
+                    evidence.update(json.loads(raw or "{}"))
+            return json.loads(outputs.get("results") or "{}"), evidence
         except ValueError:
             problems.append(f"{job}: its results or evidence aren't readable JSON")
             return None

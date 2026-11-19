@@ -3,7 +3,7 @@
 # A project calls this workflow, pinned to a kit release:
 #
 #   jobs:
-#     security:
+#     code:
 #       uses: atwine/security-kit/.github/workflows/scans.yml@<full commit SHA> # vX.Y.Z
 #
 # Checks: leaked secrets in the history (gitleaks), risky code patterns
@@ -11,11 +11,24 @@
 # libraries with known holes (pip-audit, npm audit), and the project's own
 # access-rule tests when it has them (written by the access-guard skill).
 #
-# Two jobs. "Run the checks" runs every check and lets GitHub record each
-# one's result. "Security checks (security-kit)" then decides pass or fail on
-# a fresh machine, from that record, so nothing the project's code does while
-# the checks run can change the verdict. Require the check named
-# "Security checks (security-kit)" in branch protection.
+# Three jobs:
+# - "Run the checks that only read the project" runs gitleaks, Semgrep, the
+#   pin check and npm audit. None of the project's code runs on that machine.
+# - "Run the checks that run project code" builds the project's Python
+#   packages for pip-audit and runs its access-rule tests. Code that runs
+#   there can still interfere with those two checks.
+# - "Security checks (security-kit)" decides pass or fail on a fresh
+#   machine (checks/gate.py), from GitHub's record of how each check step
+#   ended. A result missing from that record counts as a failure: GitHub
+#   drops a result whose text a step registered as a secret.
+#
+# In branch protection, require "<your job's name> / Security checks
+# (security-kit)", for example "code / Security checks (security-kit)".
+#
+# Every job fetches the kit and moves it out before checking out the
+# project. actions/checkout empties a folder that exists without .git before
+# fetching into it, so the other order would wipe a project folder named
+# .security-kit before any check saw it.
 name: security-kit scans
 
 on:
@@ -45,25 +58,28 @@ on:
       results:
         description: "JSON: check name -> success or failure, from GitHub's record of each check step"
         value: >-
-          {"secrets": "${{ jobs.scan.outputs.secrets }}",
-          "risky_code": "${{ jobs.scan.outputs.risky_code }}",
-          "pins": "${{ jobs.scan.outputs.pins }}",
-          "node_libraries": "${{ jobs.scan.outputs.node_libraries }}",
-          "python_libraries": "${{ jobs.scan.outputs.python_libraries }}",
-          "access_rules": "${{ jobs.scan.outputs.access_rules }}"}
-      evidence:
-        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON check name -> what that check's tool reported"
-        value: ${{ jobs.scan.outputs.evidence }}
+          {"secrets": "${{ jobs.read.outputs.secrets }}",
+          "risky_code": "${{ jobs.read.outputs.risky_code }}",
+          "pins": "${{ jobs.read.outputs.pins }}",
+          "node_libraries": "${{ jobs.read.outputs.node_libraries }}",
+          "python_libraries": "${{ jobs.run.outputs.python_libraries }}",
+          "access_rules": "${{ jobs.run.outputs.access_rules }}"}
+      evidence-read:
+        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON check name -> what the read-only checks' tools reported"
+        value: ${{ jobs.read.outputs.evidence }}
+      evidence-run:
+        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON check name -> what pip-audit and the access tests reported"
+        value: ${{ jobs.run.outputs.evidence }}
 
 permissions:
   contents: read
 
 jobs:
-  scan:
-    name: Run the checks (security-kit)
+  read:
+    name: Run the checks that only read the project (security-kit)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # The six check values are GitHub's own record of how each check step
+    timeout-minutes: 20
+    # The four check values are GitHub's own record of how each check step
     # ended; no script writes them. evidence is written by a script, is
     # filled only in the kit's own repository for its self-test, and never
     # decides a project's verdict.
@@ -72,8 +88,6 @@ jobs:
       risky_code: ${{ steps.risky_code.outcome }}
       pins: ${{ steps.pins.outcome }}
       node_libraries: ${{ steps.node_libraries.outcome }}
-      python_libraries: ${{ steps.python_libraries.outcome }}
-      access_rules: ${{ steps.access_rules.outcome }}
       evidence: ${{ steps.evidence.outputs.evidence }}
     env:
       WD: ${{ inputs.working-directory }}
@@ -86,11 +100,6 @@ jobs:
           echo "::error::security-kit can't run from $EVENT: that event checks out the base branch, not the change, so every change would pass. Call it from push or pull_request."
           exit 1
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Fetch the kit's own scripts, at the same version as this workflow
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,11 +110,16 @@ jobs:
 
       # Each check also writes its tool's report to $RUNNER_TEMP/reports.
       # Semgrep writes from its own container, so that folder is open to it.
-      - name: Move the kit's files out of the project's folder
+      - name: Move the kit's files out, before the project is checked out
         run: |
           mv .security-kit "$RUNNER_TEMP/security-kit"
           mkdir -p "$RUNNER_TEMP/reports"
           chmod 777 "$RUNNER_TEMP/reports"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -126,7 +140,7 @@ jobs:
           git add -A -- "$WD"
           git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
 
-      - name: Install the scanners (pinned, checksum-verified)
+      - name: Install gitleaks (pinned, checksum-verified)
         env:
           GITLEAKS_VERSION: 8.30.1
         run: |
@@ -139,10 +153,7 @@ jobs:
           grep " $tarball\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
           tar -xzf "$tarball" gitleaks
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          pip install --quiet pip-audit==2.10.1
 
-      # These checks only read the project's files, so they run before
-      # anything that executes the project's code.
       - id: secrets
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
@@ -179,9 +190,84 @@ jobs:
           python -I "$RUNNER_TEMP/security-kit/checks/findings.py" show npm "$RUNNER_TEMP/reports/npm-audit.json"
           exit $status
 
-      # These two run the project's code (building packages, running its
-      # tests), so they come last. They can't change the results above, and
-      # the verdict is decided in a separate job.
+      # In the kit's own repository only: list what each check's tool
+      # reported, so the self-test can prove each catch is the defect it
+      # planted. Every other repository skips this, and the verdict never
+      # reads it.
+      - id: evidence
+        name: What each check reported (kit's own repository only)
+        if: always()
+        env:
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
+        run: |
+          if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own repository uses this."; exit 0; fi
+          evidence=$(python -I "$RUNNER_TEMP/security-kit/checks/findings.py" evidence-code "$RUNNER_TEMP/reports" secrets risky_code pins node_libraries)
+          echo "$evidence"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
+
+  run:
+    name: Run the checks that run project code (security-kit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # GitHub's own record of how each check step ended. These two checks run
+    # the project's code (building its Python packages, running its tests),
+    # which can still interfere with them; that code never runs where the
+    # read-only checks are recorded.
+    outputs:
+      python_libraries: ${{ steps.python_libraries.outcome }}
+      access_rules: ${{ steps.access_rules.outcome }}
+      evidence: ${{ steps.evidence.outputs.evidence }}
+    env:
+      WD: ${{ inputs.working-directory }}
+    steps:
+      - name: Refuse events that check out the wrong code
+        if: github.event_name == 'pull_request_target' || github.event_name == 'workflow_run'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "::error::security-kit can't run from $EVENT: that event checks out the base branch, not the change, so every change would pass. Call it from push or pull_request."
+          exit 1
+
+      - name: Fetch the kit's own scripts, at the same version as this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .security-kit
+          persist-credentials: false
+
+      - name: Move the kit's files out, before the project is checked out
+        run: |
+          mv .security-kit "$RUNNER_TEMP/security-kit"
+          mkdir -p "$RUNNER_TEMP/reports"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Plant a known defect (kit self-test only)
+        if: inputs.self-test-defect != ''
+        env:
+          DEFECT: ${{ inputs.self-test-defect }}
+          REPO: ${{ github.repository }}
+          KIT_REPO: ${{ job.workflow_repository }}
+        run: |
+          if [ "$REPO" != "$KIT_REPO" ]; then
+            echo "::error::self-test-defect is for the kit's own self-test only."
+            exit 1
+          fi
+          python -I "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
+          git add -A -- "$WD"
+          git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
+
+      - name: Install pip-audit (pinned)
+        run: pip install --quiet pip-audit==2.10.1
+
       - id: python_libraries
         name: Python libraries with known holes (pip-audit)
         continue-on-error: true
@@ -211,10 +297,6 @@ jobs:
           if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
           python -m pytest -q -p no:cacheprovider --junitxml "$RUNNER_TEMP/reports/access-tests.xml" "$TESTS"
 
-      # In the kit's own repository only: list what each check's tool
-      # reported, so the self-test can prove each catch is the defect it
-      # planted. Every other repository skips this, and the verdict below
-      # never reads it.
       - id: evidence
         name: What each check reported (kit's own repository only)
         if: always()
@@ -223,13 +305,13 @@ jobs:
           KIT_REPO: ${{ job.workflow_repository }}
         run: |
           if [ "$REPO" != "$KIT_REPO" ]; then echo "Only the kit's own repository uses this."; exit 0; fi
-          evidence=$(python -I "$RUNNER_TEMP/security-kit/checks/findings.py" evidence-code "$RUNNER_TEMP/reports")
+          evidence=$(python -I "$RUNNER_TEMP/security-kit/checks/findings.py" evidence-code "$RUNNER_TEMP/reports" python_libraries access_rules)
           echo "$evidence"
           echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
 
   verdict:
     name: Security checks (security-kit)
-    needs: scan
+    needs: [read, run]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
