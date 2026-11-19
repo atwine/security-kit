@@ -7,6 +7,7 @@ runner. The fake token is generated at run time, so this repository never
 stores a secret-shaped string.
 """
 
+import json
 import secrets
 import string
 import sys
@@ -20,9 +21,35 @@ def secret(app: Path) -> None:
 
 
 def vulnerable_library(app: Path) -> None:
-    # requests 2.19.1 has published holes, fixed in later releases.
+    # urllib3 1.26.4 has published holes (PYSEC-2021-108 and later). It has no
+    # dependencies of its own, so it installs cleanly next to the fixture's
+    # libraries and pip-audit really looks it up. (requests 2.19.1, planted
+    # before, needs idna<2.8, which the fixture's libraries can't use, so pip
+    # stopped before pip-audit checked anything.)
     with (app / "requirements.txt").open("a", encoding="utf-8") as requirements:
-        requirements.write("requests==2.19.1\n")
+        requirements.write("urllib3==1.26.4\n")
+
+
+def node_library(app: Path) -> None:
+    # lodash 4.17.15 has published high-severity holes (command injection,
+    # prototype pollution). npm audit reads only the lockfile, so nothing is
+    # downloaded or installed.
+    lodash = {
+        "version": "4.17.15",
+        "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.15.tgz",
+        "integrity": "sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==",
+        "license": "MIT",
+    }
+    project = {"name": "fixture-app", "version": "1.0.0", "private": True, "dependencies": {"lodash": "4.17.15"}}
+    lockfile = {
+        "name": "fixture-app",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": {"": {k: project[k] for k in ("name", "version", "dependencies")}, "node_modules/lodash": lodash},
+    }
+    (app / "package.json").write_text(json.dumps(project, indent=2) + "\n", encoding="utf-8")
+    (app / "package-lock.json").write_text(json.dumps(lockfile, indent=2) + "\n", encoding="utf-8")
 
 
 def risky_code(app: Path) -> None:
@@ -103,6 +130,7 @@ def replace_once(path: Path, old: str, new: str) -> None:
 DEFECTS = {
     "secret": secret,
     "vulnerable-library": vulnerable_library,
+    "node-library": node_library,
     "risky-code": risky_code,
     "unpinned-library": unpinned_library,
     "missing-headers": missing_headers,
