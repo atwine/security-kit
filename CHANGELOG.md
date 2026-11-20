@@ -117,6 +117,22 @@
     redirects to a page with an insecure cookie) and a second
     environment-line bypass aimed at the kit's check. `missing-headers` now
     drops only the three headers ZAP checks.
+- The pin check misses fewer loose pins (review group E):
+  - It reads requirements files the way pip does (a comment line never
+    joins the next one), follows files pulled in with -r and -c, and
+    needs a literal version after ==.
+  - Editable and direct installs must name a full commit hash; archive
+    URLs need their hash. A hash elsewhere in the URL no longer counts.
+  - --find-links and abbreviated --extra-index count as second sources,
+    and a --hash mentioned only in a comment doesn't count as hashing.
+  - A requirements option the check doesn't know fails it. A single
+    --index-url is allowed and printed as a note.
+  - Workflow and composite-action images (container:, services:, image:)
+    and Dockerfile base images need a digest; Dockerfiles used to warn.
+    Every spelling of uses: is read.
+  - Pre-commit hooks pinned by tag fail. The kit's own hook and the
+    template's are frozen to gitleaks v8.30.1's commit (review item F4).
+  - Self-test: three new planted pin defects.
 
 ## v0.1.0 (2026-11-19), test release
 
