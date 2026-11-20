@@ -27,6 +27,7 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+from xml.etree import ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I leaves the kit's own folder off the path
 import findings  # noqa: E402
@@ -69,10 +70,12 @@ def _read_disk(path: str) -> str:
 def node(files: list[str]) -> dict:
     """Folders whose npm lockfile npm audit reads, and other JavaScript lockfiles it can't.
 
+    A yarn, pnpm or bun lockfile is reported even next to an npm lockfile: npm
+    audit reads only the npm one, and the other may pin different versions.
     A package.json with no lockfile at all is left to the pin check, which fails it.
     """
     audit = sorted({_parent(f) for f in files if _name(f) in NPM_LOCKFILES})
-    not_checked = sorted(f for f in files if _name(f) in OTHER_JS_LOCKFILES and _parent(f) not in audit)
+    not_checked = sorted(f for f in files if _name(f) in OTHER_JS_LOCKFILES)
     return {"audit": audit, "not_checked": not_checked}
 
 
@@ -244,7 +247,7 @@ def run_npm(wd: str, reports: Path) -> int:
         status |= code != 0
     if not found["audit"] and not found["not_checked"]:
         print("No npm lockfiles.")
-    return status | _not_checked(reports, "node_libraries", found["not_checked"], "npm audit can't read this lockfile")
+    return status | _not_checked(reports, "node_libraries", found["not_checked"], "npm audit reads only package-lock.json and npm-shrinkwrap.json; delete this lockfile if the project doesn't use it")
 
 
 def run_pip_audit(wd: str, reports: Path) -> int:
@@ -275,6 +278,15 @@ def run_pip_audit(wd: str, reports: Path) -> int:
     return status | _not_checked(reports, "python_libraries", skipped, "pip-audit couldn't look this package up")
 
 
+def tests_that_ran(junit: str) -> int:
+    """How many tests in a pytest JUnit report ran: skipped and xfailed ones don't count."""
+    try:
+        root = ElementTree.fromstring(junit)
+    except ElementTree.ParseError:
+        return 0
+    return sum(1 for case in root.iter("testcase") if case.find("skipped") is None)
+
+
 def run_access_tests(wd: str, reports: Path, named: list[str]) -> int:
     found = access(tracked("."), named, wd)
     status, empty = 0, []
@@ -299,7 +311,7 @@ def run_access_tests(wd: str, reports: Path, named: list[str]) -> int:
         ).returncode
         print("::endgroup::")
         status |= code != 0
-        ran = len(re.findall(r"<testcase\b", report.read_text(encoding="utf-8"))) if report.is_file() else 0
+        ran = tests_that_ran(report.read_text(encoding="utf-8", errors="replace")) if report.is_file() else 0
         if not ran:
             empty.append(folder)
     if not found["suites"] and not found["not_checked"]:

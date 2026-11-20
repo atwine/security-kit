@@ -21,6 +21,11 @@ class Node(unittest.TestCase):
         files = ["web/package.json", "web/yarn.lock", "app/pnpm-lock.yaml", "edge/bun.lockb"]
         self.assertEqual(inventory.node(files)["not_checked"], ["app/pnpm-lock.yaml", "edge/bun.lockb", "web/yarn.lock"])
 
+    def test_a_lockfile_next_to_an_npm_lockfile_is_still_not_checked(self):
+        # npm audit reads only the npm lockfile; the yarn one may hold other versions.
+        files = ["web/package.json", "web/package-lock.json", "web/yarn.lock"]
+        self.assertEqual(inventory.node(files), {"audit": ["web"], "not_checked": ["web/yarn.lock"]})
+
     def test_a_package_json_without_any_lockfile_is_left_to_the_pin_check(self):
         self.assertEqual(inventory.node(["package.json"]), {"audit": [], "not_checked": []})
 
@@ -114,6 +119,25 @@ class Access(unittest.TestCase):
 
     def test_no_access_md_and_no_tests_needs_nothing(self):
         self.assertEqual(inventory.access(["app.py"], []), {"suites": [], "not_checked": []})
+
+
+class TestsThatRan(unittest.TestCase):
+    """Audit run 2: access tests that were all skipped must not count as run."""
+
+    def junit(self, *cases):
+        return "<testsuites><testsuite>" + "".join(cases) + "</testsuite></testsuites>"
+
+    def test_passed_and_failed_tests_count(self):
+        report = self.junit('<testcase name="a"/>', '<testcase name="b"><failure message="x"/></testcase>')
+        self.assertEqual(inventory.tests_that_ran(report), 2)
+
+    def test_skipped_tests_do_not_count(self):
+        report = self.junit('<testcase name="a"><skipped message="no DATABASE_URL"/></testcase>',
+                            '<testcase name="b"><skipped type="pytest.xfail" message="x"/></testcase>')
+        self.assertEqual(inventory.tests_that_ran(report), 0)
+
+    def test_an_unreadable_report_counts_nothing(self):
+        self.assertEqual(inventory.tests_that_ran("not xml"), 0)
 
 
 class Semgrep(unittest.TestCase):

@@ -41,6 +41,9 @@ EXPECTED = {
     "gitleaks-config": ("gitleaks-config", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "semgrepignore": ("semgrepignore", "risky_code", ("selftest/fixture-app/run_command.py",)),
     "npmrc-registry": ("npmrc-registry", "node_libraries", ("lodash (", "GHSA-")),
+    # Honest accidents from audit run 2 (PR K1).
+    "gitattributes-secret": ("gitattributes-secret", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "gitignored-risky-code": ("gitignored-risky-code", "risky_code", ("selftest/fixture-app/run_command.py",)),
     # Website rules ZAP can't check over plain HTTP (group D).
     "site-no-hsts": ("site-no-hsts", "site_policy", ("KIT-HSTS ",)),
     "site-no-referrer-permissions": ("site-no-referrer-permissions", "site_policy", ("KIT-REFERRER ", "KIT-PERMISSIONS ")),
