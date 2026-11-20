@@ -75,10 +75,10 @@ on:
         default: ""
     outputs:
       results:
-        description: "JSON: site_headers -> success or failure, from GitHub's record of the scan step"
-        value: '{"site_headers": "${{ jobs.scan.outputs.site_headers }}"}'
+        description: "JSON: site_headers (ZAP) and site_policy (the kit's own check) -> success or failure, from GitHub's record of each step"
+        value: '{"site_headers": "${{ jobs.scan.outputs.site_headers }}", "site_policy": "${{ jobs.scan.outputs.site_policy }}"}'
       evidence:
-        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON site_headers -> the failing ZAP rules it reported"
+        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON site_headers -> the failing ZAP rules it reported, site_policy -> the kit check's findings that weren't accepted"
         value: ${{ jobs.scan.outputs.evidence }}
 
 permissions:
@@ -94,6 +94,7 @@ jobs:
     # for its self-test.
     outputs:
       site_headers: ${{ steps.site_headers.outcome }}
+      site_policy: ${{ steps.site_policy.outcome }}
       evidence: ${{ steps.evidence.outputs.evidence }}
     env:
       WD: ${{ inputs.working-directory }}
@@ -214,9 +215,32 @@ jobs:
           export DOCKER_CONFIG
           export DOCKER_HOST=unix:///var/run/docker.sock
           echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | /usr/bin/sha256sum -c --quiet -
+          # ZAP gets the rules without the kit's own KIT- lines. -silent stops
+          # it downloading rule updates, so the pinned image's rules are used.
+          /usr/bin/grep -v '^KIT-' "$ZAP_DIR/rules.conf" > "$ZAP_DIR/zap-rules.conf" || true
           /usr/bin/docker run --rm --network host -v "$ZAP_DIR:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
-            zap-baseline.py -t "$URL" -c rules.conf -J report.json -I
+            zap-baseline.py -t "$URL" -c zap-rules.conf -J report.json -I -z "-silent"
+
+      # The protections ZAP can't see over plain HTTP: HSTS, Referrer-Policy,
+      # Permissions-Policy, cookie Secure and SameSite flags, and CORS
+      # (checks/site_policy.py). Same guarded shell as the scan.
+      - id: site_policy
+        name: HSTS, referrer and permissions policies, cookie flags and CORS (kit check)
+        continue-on-error: true
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
+        env:
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+          URL: ${{ inputs.url }}
+          ZAP_DIR: ${{ runner.temp }}/zap
+          KIT: ${{ runner.temp }}/security-kit
+          RULES_SHA256: ${{ steps.prepare.outputs.rules_sha256 }}
+        run: |
+          export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+          echo "$RULES_SHA256  $ZAP_DIR/rules.conf" | /usr/bin/sha256sum -c --quiet -
+          /usr/bin/python3 -I "$KIT/checks/site_policy.py" "$URL" "$ZAP_DIR/rules.conf" "$ZAP_DIR/site-policy.json"
 
       - name: List what ZAP found
         if: always()
@@ -271,7 +295,8 @@ jobs:
       # A fresh machine: none of the project's code has run here.
       - name: Decide from GitHub's record of the scan
         env:
-          OUTCOME: ${{ needs.scan.outputs.site_headers }}
+          HEADERS: ${{ needs.scan.outputs.site_headers }}
+          POLICY: ${{ needs.scan.outputs.site_policy }}
           SCAN: ${{ needs.scan.result }}
           ASKED_REPORT_ONLY: ${{ !inputs.fail-on-findings }}
           REPO: ${{ github.repository }}
@@ -285,21 +310,21 @@ jobs:
               echo "::warning::fail-on-findings: false only applies to the kit's own self-test. This project's scan still decides the check."
             fi
           fi
-          case "$OUTCOME" in
-            success) shown="success" ;;
-            failure) shown="found something" ;;
-            *) shown="${OUTCOME:-no result}" ;;
-          esac
-          { echo "| Check | Result |"; echo "|---|---|"; echo "| site_headers | $shown |"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          problem=""
-          if [ "$OUTCOME" = "failure" ]; then
-            problem="The website scan found something. 'List what ZAP found' in the 'Run the website scan' job shows each finding and its rule number."
-          elif [ "$OUTCOME" != "success" ]; then
-            problem="The website scan did not run (${OUTCOME:-no result}); the scan job ended with '$SCAN'."
-          elif [ "$SCAN" != "success" ]; then
-            problem="The scan job ended with '$SCAN'."
-          fi
-          if [ -z "$problem" ]; then exit 0; fi
-          if [ "$report_only" = "true" ]; then echo "::notice::$problem"; exit 0; fi
-          echo "::error::$problem"
+          problems=()
+          { echo "| Check | Result |"; echo "|---|---|"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          for pair in "site_headers:$HEADERS:The step 'List what ZAP found'" "site_policy:$POLICY:The kit check's step"; do
+            name="${pair%%:*}"; rest="${pair#*:}"; outcome="${rest%%:*}"; where="${rest#*:}"
+            case "$outcome" in
+              success) shown="success" ;;
+              failure) shown="found something"; problems+=("$name found something. $where in the 'Run the website scan' job shows each finding.") ;;
+              *) shown="${outcome:-no result}"; problems+=("$name did not run (${outcome:-no result}). A missing result counts as a failure.") ;;
+            esac
+            echo "| $name | $shown |" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          if [ "$SCAN" != "success" ]; then problems+=("The scan job ended with '$SCAN'."); fi
+          if [ ${#problems[@]} -eq 0 ]; then exit 0; fi
+          for problem in "${problems[@]}"; do
+            if [ "$report_only" = "true" ]; then echo "::notice::$problem"; else echo "::error::$problem"; fi
+          done
+          if [ "$report_only" = "true" ]; then exit 0; fi
           exit 1

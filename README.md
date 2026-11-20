@@ -10,7 +10,7 @@ every project starts secure and stays current as security standards change.
 | Part | What it does |
 |---|---|
 | [`.github/workflows/scans.yml`](.github/workflows/scans.yml) | Checks the code on every push: leaked secrets in the history (gitleaks), Python and JavaScript libraries with known holes (pip-audit, npm audit), risky code patterns (Semgrep), exact version pins ([`checks/pins.py`](checks/pins.py)), and the project's access-rule tests. |
-| [`.github/workflows/site-scan.yml`](.github/workflows/site-scan.yml) | Starts the app inside the GitHub job and runs a look-only OWASP ZAP baseline scan. Missing protective headers, insecure cookies and open cross-site rules fail it ([`checks/zap-baseline.conf`](checks/zap-baseline.conf)). |
+| [`.github/workflows/site-scan.yml`](.github/workflows/site-scan.yml) | Starts the app inside the GitHub job and runs a look-only OWASP ZAP baseline scan. Missing protective headers and cookies without HttpOnly fail it ([`checks/zap-baseline.conf`](checks/zap-baseline.conf)). The kit's own check ([`checks/site_policy.py`](checks/site_policy.py)) covers what ZAP can't see over plain HTTP: HSTS, Referrer-Policy, Permissions-Policy, cookie Secure and SameSite flags, and CORS. |
 | [`templates/`](templates) | What a project copies: the workflow that calls the kit, Dependabot setup with a 7-day cooldown, the secret check before each commit, safe header defaults for FastAPI and Next.js, and a threat model, incident plan, security policy and `security.txt`. |
 | [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md) | 54 checks drawn from the OWASP Application Security Verification Standard 5.0, the OWASP Top 10:2025, the API Security Top 10 2023 and the Top 10 for LLM Applications 2025, plus privacy basics. Each says whether a kit check, a skill, kept evidence or an owner decision covers it. |
 | [`watch/`](watch) | The monthly watcher ([`watch.yml`](.github/workflows/watch.yml)): looks for new versions of the scanners the kit pins, new OWASP editions, critical advisories for FastAPI, Starlette, Next.js and React, and actively exploited holes in those stacks, then opens one `kit-update` issue listing them. |
@@ -64,9 +64,7 @@ name the planted item, so a crash or an unrelated error doesn't count as a
 catch. Every other check must still pass in that run. The clean app must
 pass everything with nothing reported, and a missing result fails the run.
 The rules live in [`selftest/verdict.py`](selftest/verdict.py), which has its
-own tests. The website scan's rules for HSTS, cookie flags and cross-site
-access have no planted defect yet: they can't fire against the plain-HTTP
-scan, and a later change fixes that. The fake token is generated during the
+own tests. The fake token is generated during the
 run and never stored. The
 same check runs the watcher's tests: a planted change in each source must be
 reported with a source link, and a quiet month or a second run must propose

@@ -71,12 +71,65 @@ def unpinned_library(app: Path) -> None:
     replace_once(app / "requirements.txt", "fastapi==", "fastapi>=")
 
 
-def missing_headers(app: Path) -> None:
+def drop_headers(app: Path, *names: str) -> None:
+    """Keep the header middleware, minus the named headers."""
+    replace_once(
+        app / "app.py",
+        "from fastapi_security_headers import SecurityHeadersMiddleware  # noqa: E402",
+        "from fastapi_security_headers import DEFAULT_HEADERS, SecurityHeadersMiddleware  # noqa: E402",
+    )
+    kept = f"{{k: v for k, v in DEFAULT_HEADERS.items() if k not in {set(names)!r}}}"
     replace_once(
         app / "app.py",
         "app.add_middleware(SecurityHeadersMiddleware)  # security-headers",
-        "# (the security headers were removed by the self-test)",
+        f"app.add_middleware(SecurityHeadersMiddleware, headers={kept})  # security-headers",
     )
+
+
+def missing_headers(app: Path) -> None:
+    # The headers ZAP's own rules check; the kit's site policy check covers the rest.
+    drop_headers(app, "content-security-policy", "x-frame-options", "x-content-type-options")
+
+
+def site_no_hsts(app: Path) -> None:
+    drop_headers(app, "strict-transport-security")
+
+
+def site_no_referrer_permissions(app: Path) -> None:
+    drop_headers(app, "referrer-policy", "permissions-policy")
+
+
+def site_insecure_cookie(app: Path) -> None:
+    # A cookie on every response with HttpOnly (so ZAP's own rule stays
+    # quiet) but without Secure or SameSite.
+    with (app / "app.py").open("a", encoding="utf-8") as code:
+        code.write(
+            '\n\n@app.middleware("http")\n'
+            "async def set_session_cookie(request, call_next):\n"
+            "    response = await call_next(request)\n"
+            '    response.set_cookie("session", "planted", httponly=True, secure=False, samesite=None)\n'
+            "    return response\n"
+        )
+
+
+def site_redirect_cookie(app: Path) -> None:
+    # The start page redirects; the page it leads to sets a cookie without
+    # Secure or SameSite (HttpOnly set, so ZAP's own rule stays quiet).
+    replace_once(
+        app / "app.py",
+        '@app.get("/", response_class=HTMLResponse)\ndef home() -> str:\n',
+        "from fastapi import Response  # noqa: E402\n"
+        "from fastapi.responses import RedirectResponse  # noqa: E402\n\n\n"
+        '@app.get("/")\ndef start():\n    return RedirectResponse("/welcome", status_code=307)\n\n\n'
+        '@app.get("/welcome", response_class=HTMLResponse)\ndef home(response: Response) -> str:\n'
+        '    response.set_cookie("session", "planted", httponly=True, secure=False, samesite=None)\n',
+    )
+
+
+def site_cors_wildcard(app: Path) -> None:
+    # Any other site may read this one's responses.
+    with (app / "app.py").open("a", encoding="utf-8") as code:
+        code.write('\n\nfrom fastapi.middleware.cors import CORSMiddleware  # noqa: E402\n\napp.add_middleware(CORSMiddleware, allow_origins=["*"])\n')
 
 
 def unruled_route(app: Path) -> None:
@@ -217,6 +270,11 @@ DEFECTS = {
     "gitleaks-config": gitleaks_config,
     "semgrepignore": semgrepignore,
     "npmrc-registry": npmrc_registry,
+    "site-no-hsts": site_no_hsts,
+    "site-no-referrer-permissions": site_no_referrer_permissions,
+    "site-insecure-cookie": site_insecure_cookie,
+    "site-cors-wildcard": site_cors_wildcard,
+    "site-redirect-cookie": site_redirect_cookie,
 }
 
 if __name__ == "__main__":
