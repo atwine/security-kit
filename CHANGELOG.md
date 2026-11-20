@@ -153,6 +153,18 @@
   - Semgrep's default rules stay live, because Semgrep's rules licence
     keeps the kit from pinning a copy. The self-test now also runs weekly,
     and the README no longer claims those rules are pinned.
+- The monthly watcher (review group G):
+  - Outside text loses HTML codes and www. links too, and a link can't be
+    rebuilt by stripping characters.
+  - Only issues the watcher's own bot wrote can mark an update as already
+    reported.
+  - Real runs have their own queue, so a pull-request preview can't cancel
+    one, and the default window is 62 days.
+  - Every source is tried even when one fails; the run reports what it
+    found and then fails. A CISA entry in an odd shape fails the run.
+  - Each issue is locked when opened and tells the drafting session to use
+    only the watcher's text.
+  - The weekly self-test fails when the watcher hasn't succeeded in 40 days.
 
 ## v0.1.0 (2026-11-19), test release
 

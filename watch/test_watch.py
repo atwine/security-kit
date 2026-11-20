@@ -151,26 +151,32 @@ class FakeResponse:
 
 
 class WatcherTest(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+
     def collect(self, world: World, sources: dict = SOURCES):
         return watch.collect(world.get, sources, watch.ROOT, TODAY, WINDOW)
 
     def run_watcher(self, world: World, dry_run: bool = False):
         posted, said = [], []
 
-        def post(url: str, payload: dict) -> dict:
-            posted.append(payload)
-            return {"html_url": f"https://github.com/{REPO}/issues/1"}
+        def post(url: str, payload: dict, method: str = "POST") -> dict:
+            if method == "POST":
+                posted.append(payload)
+            self.calls.append((method, url))
+            return {"html_url": f"https://github.com/{REPO}/issues/1", "number": 1}
 
         watch.run(world.get, post, REPO, watch.ROOT, SOURCES, TODAY, WINDOW, dry_run, said.append)
         return posted, said
 
     def test_a_quiet_month_proposes_nothing(self):
-        items, notes = self.collect(World(planted=False))
+        items, notes, failures = self.collect(World(planted=False))
         self.assertEqual(items, [])
         self.assertEqual(len(notes), 4)
+        self.assertEqual(failures, [])
 
     def test_each_planted_change_is_reported_with_a_source_link(self):
-        items, _ = self.collect(World(planted=True))
+        items, _, _ = self.collect(World(planted=True))
         self.assertEqual({item.key for item in items}, planted_keys())
         for item in items:
             self.assertTrue(item.links, item.key)
@@ -186,13 +192,13 @@ class WatcherTest(unittest.TestCase):
         posted, _ = self.run_watcher(World(planted=True))
         self.assertEqual(len(posted), 1)
         self.assertEqual(posted[0]["labels"], ["kit-update"])
-        again, said = self.run_watcher(World(planted=True, issues=[{"number": 1, "body": posted[0]["body"]}]))
+        again, said = self.run_watcher(World(planted=True, issues=[{"number": 1, "body": posted[0]["body"], "user": {"login": "github-actions[bot]", "type": "Bot"}}]))
         self.assertEqual(again, [])
         self.assertIn("Nothing new to propose", said[-1])
 
     def test_a_marker_in_a_pull_request_is_not_a_report(self):
         posted, _ = self.run_watcher(World(planted=True))
-        pull = {"number": 2, "body": posted[0]["body"], "pull_request": {}}
+        pull = {"number": 2, "body": posted[0]["body"], "pull_request": {}, "user": {"login": "github-actions[bot]", "type": "Bot"}}
         again, _ = self.run_watcher(World(planted=True, issues=[pull]))
         self.assertEqual(len(again), 1)
 
@@ -202,7 +208,7 @@ class WatcherTest(unittest.TestCase):
         self.assertIn("Would open: Kit update: 10 changes to review (2026-12)", said[-1])
 
     def test_the_issue_lists_items_as_checkboxes_with_a_hidden_record(self):
-        items, _ = self.collect(World(planted=True))
+        items, _, _ = self.collect(World(planted=True))
         title, body = watch.render(items, TODAY)
         self.assertEqual(title, "Kit update: 10 changes to review (2026-12)")
         self.assertEqual(body.count("\n- [ ] "), 10)
@@ -217,14 +223,143 @@ class WatcherTest(unittest.TestCase):
                 raise watch.SourceError("network down")
             return world.get(url)
 
-        with self.assertRaises(watch.SourceError):
-            watch.collect(broken, SOURCES, watch.ROOT, TODAY, WINDOW)
+        items, notes, failures = watch.collect(broken, SOURCES, watch.ROOT, TODAY, WINDOW)
+        self.assertEqual(len(notes), 3)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("network down", failures[0])
 
     def test_a_pin_the_watcher_cannot_find_fails_the_run(self):
         sources = json.loads(json.dumps(SOURCES))
         sources["scanners"]["zap"]["pin"] = r"zaproxy-renamed:(\d+\.\d+\.\d+)"
-        with self.assertRaises(watch.SourceError):
-            self.collect(World(planted=False), sources)
+        _, _, failures = self.collect(World(planted=False), sources)
+        self.assertTrue(failures)
+
+
+    # Group G: the review's findings about the watcher.
+
+    def test_entity_codes_and_www_links_are_dropped(self):
+        text = watch.clean("see &commat;octocat or &#64;someone at www.evil.example/x now")
+        for bad in ("&", "commat", "#", "www.", "evil"):
+            self.assertNotIn(bad, text)
+
+    def test_stripping_characters_cannot_rebuild_a_link(self):
+        text = watch.clean("go to https:/<>/evil.example/path today")
+        self.assertNotIn("evil", text)
+        self.assertNotIn("://", text)
+
+    def test_only_issues_the_watcher_s_bot_wrote_hide_updates(self):
+        posted, _ = self.run_watcher(World(planted=True))
+        outsider = {"number": 5, "body": posted[0]["body"], "user": {"login": "someone", "type": "User"}}
+        again, _ = self.run_watcher(World(planted=True, issues=[outsider]))
+        self.assertEqual(len(again), 1)
+
+    def test_a_broken_source_still_lets_the_others_report_and_then_fails(self):
+        world = World(planted=True)
+
+        def broken(url: str):
+            if url == watch.KEV_URL:
+                raise watch.SourceError("network down")
+            return world.get(url)
+
+        posted = []
+
+        def post(url, payload, method="POST"):
+            if method == "POST":
+                posted.append(payload)
+            return {"html_url": "https://github.com/x/y/issues/1", "number": 1}
+
+        with self.assertRaises(watch.SourceError) as caught:
+            watch.run(broken, post, REPO, watch.ROOT, SOURCES, TODAY, WINDOW, False, lambda text: None)
+        self.assertEqual(len(posted), 1)
+        self.assertIn("network down", str(caught.exception))
+
+    def test_a_cisa_entry_in_an_odd_shape_fails_the_run(self):
+        world = World(planted=False)
+        kev = world.kev()
+        kev["vulnerabilities"].append({"cveID": "CVE-2026-2000", "vendorProject": "PostgreSQL", "product": "PostgreSQL"})
+
+        def odd(url: str):
+            return (kev, None) if url == watch.KEV_URL else world.get(url)
+
+        _, _, failures = watch.collect(odd, SOURCES, watch.ROOT, TODAY, WINDOW)
+        self.assertTrue(any("CISA" in failure for failure in failures))
+
+    def test_the_new_issue_is_locked(self):
+        self.run_watcher(World(planted=True))
+        self.assertIn(("PUT", f"https://api.github.com/repos/{REPO}/issues/1/lock"), self.calls)
+
+    def test_the_issue_tells_the_drafting_session_to_trust_only_the_watcher_s_text(self):
+        items, _, _ = self.collect(World(planted=True))
+        _, body = watch.render(items, TODAY)
+        self.assertIn("Use only the text the watcher wrote", body)
+        self.assertIn("check it at its source link", body)
+
+    def test_days_since_the_last_successful_run(self):
+        runs = [
+            {"event": "pull_request", "conclusion": "success", "created_at": "2026-11-28T06:17:00Z"},
+            {"event": "schedule", "conclusion": "success", "created_at": "2026-10-01T06:17:00Z"},
+            {"event": "workflow_dispatch", "conclusion": "failure", "created_at": "2026-11-20T06:17:00Z"},
+        ]
+        self.assertEqual(watch.days_since_success(runs, TODAY), 61)
+        self.assertIsNone(watch.days_since_success(runs[:1], TODAY))
+
+    def test_real_runs_have_their_own_queue_and_look_back_two_months(self):
+        text = (watch.ROOT / ".github" / "workflows" / "watch.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event_name == 'pull_request'", text.split("concurrency:", 1)[1].split("jobs:", 1)[0])
+        self.assertGreaterEqual(watch.DEFAULT_WINDOW_DAYS, 62)
+
+    def test_outside_text_sits_in_code_spans_so_gh_references_make_no_link(self):
+        world = World(planted=True)
+        kev = world.kev()
+        kev["vulnerabilities"][-1]["vulnerabilityName"] = "Bug, see GH-12 and #13"
+
+        def get(url: str):
+            if url == watch.KEV_URL:
+                return kev, None
+            if urllib.parse.urlparse(url).path == "/advisories":
+                found = world.get(url)[0]
+                for advisory in found:
+                    advisory["summary"] = "Bypass, details in GH-12."
+                return found, None
+            return world.get(url)
+
+        items, _, _ = watch.collect(get, SOURCES, watch.ROOT, TODAY, WINDOW)
+        texts = {item.section: item.text for item in items if item.section in ("advisory", "exploited")}
+        self.assertIn("`Bypass, details in GH-12`", texts["advisory"])
+        self.assertIn("`next`", texts["advisory"])
+        self.assertIn("`Bug, see GH-12 and 13`", texts["exploited"])
+        for text in texts.values():
+            outside = re.sub(r"`[^`]*`", "", text)
+            self.assertNotIn("GH-12", outside)
+
+    def test_a_cisa_entry_with_no_product_name_is_still_read(self):
+        world = World(planted=True)
+        kev = world.kev()
+        kev["vulnerabilities"].append({"cveID": "CVE-2026-2001", "vendorProject": "PostgreSQL", "product": "",
+                                       "vulnerabilityName": "x", "dateAdded": "2026-11-28"})
+
+        def get(url: str):
+            return (kev, None) if url == watch.KEV_URL else world.get(url)
+
+        items, _, failures = watch.collect(get, SOURCES, watch.ROOT, TODAY, WINDOW)
+        self.assertEqual(failures, [])
+        self.assertIn("exploited:CVE-2026-2001", {item.key for item in items})
+
+    def test_entity_lookalikes_stay_readable(self):
+        self.assertEqual(watch.clean("AT&T and R&D"), "ATT and RD")
+        self.assertEqual(watch.clean("a &amp; b &#64;c"), "a b c")
+
+    def test_an_issue_an_earlier_run_left_unlocked_is_locked(self):
+        bot = {"login": "github-actions[bot]", "type": "Bot"}
+        self.run_watcher(World(planted=False, issues=[{"number": 7, "body": "", "user": bot, "locked": False},
+                                                      {"number": 8, "body": "", "user": bot, "locked": True}]))
+        self.assertIn(("PUT", f"https://api.github.com/repos/{REPO}/issues/7/lock"), self.calls)
+        self.assertNotIn(("PUT", f"https://api.github.com/repos/{REPO}/issues/8/lock"), self.calls)
+
+    def test_the_watcher_recent_check_passes_in_forks(self):
+        text = (watch.ROOT / ".github" / "workflows" / "self-test.yml").read_text(encoding="utf-8")
+        job = text.split("  watcher-recent:", 1)[1].split("\n  self-test-rules:", 1)[0]
+        self.assertIn("github.event.repository.fork", job)
 
     def test_outside_text_cannot_mention_link_or_add_markup(self):
         text = watch.clean("Bypass @octocat <script>alert(1)</script> [click](https://evil.example) `rm` #12 | ok")

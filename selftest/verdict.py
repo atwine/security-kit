@@ -61,6 +61,7 @@ EXPECTED = {
 UNIT_TESTS = {
     "watcher": "Watcher tests (planted changes reported, quiet runs silent)",
     "self-test-rules": "Tests of the self-test's verdict and report readers",
+    "watcher-recent": "The watcher succeeded in the last 40 days",
 }
 
 
