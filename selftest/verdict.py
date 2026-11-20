@@ -66,15 +66,17 @@ UNIT_TESTS = {
 
 CLEAN_JOBS = {"clean": CODE_CHECKS, "site-clean": SITE_CHECKS}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
-# Each scanner image the kit pins as tag@digest, and the workflow that pins it.
-PINNED_IMAGES = {"semgrep": ("scans.yml", r"semgrep/semgrep:(\d+\.\d+\.\d+)@sha256"), "zap": ("site-scan.yml", r"zaproxy:(\d+\.\d+\.\d+)@sha256")}
+SOURCES = Path(__file__).resolve().parents[1] / "watch" / "sources.json"
+IMAGES = ("semgrep", "zap")  # the scanners the kit runs as tag@digest images
 
 
 def pinned_tags() -> dict:
-    """The version tag the kit pins next to each scanner image's digest."""
+    """The version tag the kit pins next to each scanner image's digest, found the way the watcher finds it."""
+    scanners = json.loads(SOURCES.read_text(encoding="utf-8"))["scanners"]
     tags = {}
-    for tool, (workflow, pattern) in PINNED_IMAGES.items():
-        found = re.search(pattern, (WORKFLOWS / workflow).read_text(encoding="utf-8"))
+    for tool in IMAGES:
+        spec = scanners[tool]
+        found = re.search(spec["pin"], (SOURCES.parents[1] / spec["file"]).read_text(encoding="utf-8"))
         tags[tool] = found.group(1) if found else ""
     return tags
 

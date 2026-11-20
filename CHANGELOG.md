@@ -143,7 +143,10 @@
   - gitleaks is checked against a checksum recorded in `scans.yml`, not
     one downloaded from the same release.
   - pip-audit installs from `checks/pip-audit-requirements.txt`, which pins
-    it and every library it needs with hashes.
+    it and every library it needs with hashes. When a project doesn't
+    install pytest, the access-rule check installs it from
+    `checks/pytest-requirements.txt` the same way. pip-audit still upgrades
+    pip inside its own temporary environments, unpinned.
   - The self-test checks that the Semgrep and ZAP versions that ran match
     the tags pinned next to their digests, so a tag bumped without its
     digest is caught.

@@ -20,7 +20,10 @@ pinned, so a project on one release always runs that release's scripts,
 scanner versions and website rules. Semgrep's default rules are the
 exception: Semgrep downloads them on each run, because its rules licence
 keeps the kit from pinning a copy. The kit's self-test runs weekly so a
-rule change that breaks a catch shows up within days.
+rule change that breaks a catch shows up within days, as long as the
+schedule runs (see "Staying current" on GitHub pausing schedules). pip-audit
+also upgrades pip inside each temporary environment it builds, and that pip
+isn't pinned.
 
 The code checks run in two jobs. gitleaks, Semgrep, the pin check and npm
 audit run on a machine where none of the project's code ever runs. pip-audit
@@ -79,7 +82,8 @@ nothing.
 On the 1st of each month the watcher checks four sources, listed in
 [`watch/sources.json`](watch/sources.json):
 
-- new releases of the scanners the kit pins inside its workflows, which
+- new releases of the scanners the kit pins (in its workflows and its lock
+  files), which
   Dependabot can't see;
 - new editions of four of the five OWASP lists the checklist cites. The
   fifth, the Top 10 for Agentic Applications, has no release feed, so

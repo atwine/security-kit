@@ -47,7 +47,7 @@ ACCESS_TEST = re.compile(r"^(test_[^/]*access[^/]*|[^/]*access[^/]*_test)\.py$")
 IGNORED_SETTINGS = (".gitleaks.toml", ".gitleaksignore", ".semgrepignore", ".npmrc")
 SKIP_COMMENTS = ("gitleaks:allow", "nosem")  # "nosem" also matches nosemgrep
 NPM_REGISTRY = "https://registry.npmjs.org/"
-PYTEST = "pytest==9.2.0"
+PYTEST_LOCK = Path(__file__).resolve().parent / "pytest-requirements.txt"  # pytest and its libraries, hash-pinned
 
 
 def _parent(path: str) -> str:
@@ -285,7 +285,9 @@ def run_access_tests(wd: str, reports: Path, named: list[str]) -> int:
             if (Path(folder) / "requirements.txt").is_file():
                 subprocess.run([sys.executable, "-P", "-m", "pip", "install", "--quiet", "-r", "requirements.txt"], cwd=folder, check=True)
             if subprocess.run([sys.executable, "-P", "-m", "pip", "show", "--quiet", "pytest"], capture_output=True).returncode != 0:
-                subprocess.run([sys.executable, "-P", "-m", "pip", "install", "--quiet", PYTEST], check=True)
+                subprocess.run(
+                    [sys.executable, "-P", "-m", "pip", "install", "--quiet", "--require-hashes", "--no-deps", "-r", str(PYTEST_LOCK)], check=True
+                )
         except subprocess.CalledProcessError as error:
             print(f"::error::Installing what the access tests in {folder} need failed ({error}).")
             status = 1
