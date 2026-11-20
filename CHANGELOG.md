@@ -185,6 +185,10 @@
     (the 2025 list is tagged 2024).
   - `spike-hello.yml`, the phase 1 test workflow, is removed. Releases
     v0.0.1 and v0.0.2 still point at it by commit.
+- Every job checks that the kit files it fetched are the workflow's own
+  repository and commit, and fails if GitHub left either unnamed (review
+  item F6). Without this, an empty name would fetch the project's own
+  repository or the kit's newest commit and run it as the kit.
 
 ## v0.1.0 (2026-11-19), test release
 
