@@ -12,7 +12,7 @@ import os
 import sys
 
 CODE_CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules")
-SITE_CHECKS = ("site_headers",)
+SITE_CHECKS = ("site_headers", "site_policy")
 
 # Planted defect -> (job, the check that must catch it, what that check's
 # report must name to prove it caught the planted item). Each text must
@@ -39,6 +39,11 @@ EXPECTED = {
     "gitleaks-config": ("gitleaks-config", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "semgrepignore": ("semgrepignore", "risky_code", ("selftest/fixture-app/run_command.py",)),
     "npmrc-registry": ("npmrc-registry", "node_libraries", ("lodash (", "GHSA-")),
+    # Website rules ZAP can't check over plain HTTP (group D).
+    "no-hsts": ("site-no-hsts", "site_policy", ("KIT-HSTS ",)),
+    "no-referrer-permissions": ("site-no-referrer-permissions", "site_policy", ("KIT-REFERRER ", "KIT-PERMISSIONS ")),
+    "insecure-cookie": ("site-insecure-cookie", "site_policy", ("KIT-COOKIE-SECURE ", "KIT-COOKIE-SAMESITE ")),
+    "cors-wildcard": ("site-cors-wildcard", "site_policy", ("KIT-CORS ",)),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
     "env-folder-pin": ("env-folder-pin", "pins", ("selftest/fixture-app/env/requirements.txt",)),
 }
