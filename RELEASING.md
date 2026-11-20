@@ -11,7 +11,9 @@ pushed.
 - **The monthly watcher** (`watch/`) opens a `kit-update` issue when a
   scanner, an OWASP list, a critical advisory or CISA's list of actively
   exploited holes has something new. To act on it, ask Claude in a session
-  to draft the kit changes for that issue.
+  to draft the kit changes for that issue. The session reads the issue with
+  `gh issue view <number> --json author,body`: the watcher's own text, without
+  comments, which anyone can add on a public repository.
 - **Dependabot** proposes updates to the kit's own GitHub Actions and the
   fixture app's libraries.
 - **Your own fixes and additions.**
