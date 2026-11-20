@@ -17,7 +17,7 @@ on:
       window-days:
         description: How many days back to look for advisories and exploited holes
         type: number
-        default: 45
+        default: 62
       dry-run:
         description: Show what would be proposed without opening an issue
         type: boolean
@@ -30,8 +30,10 @@ on:
 permissions:
   contents: read
 
+# Real runs (scheduled or started by hand) share one queue, which pull
+# request previews can't join, so a preview can never cancel a real run.
 concurrency:
-  group: kit-watcher
+  group: ${{ github.event_name == 'pull_request' && format('kit-watcher-preview-{0}', github.ref) || 'kit-watcher' }}
   cancel-in-progress: false
 
 jobs:
@@ -74,7 +76,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          WINDOW_DAYS: ${{ inputs.window-days || 45 }}
+          WINDOW_DAYS: ${{ inputs.window-days || 62 }}
           DRY_RUN: ${{ inputs.dry-run || false }}
         run: |
           args=(--repo "$REPO" --window-days "$WINDOW_DAYS")

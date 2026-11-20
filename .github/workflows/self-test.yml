@@ -288,6 +288,29 @@ jobs:
       - name: Run the watcher's tests (no network)
         run: python -m unittest discover -s watch -v
 
+  # The watcher can stop without anyone noticing: its runs can keep failing,
+  # or GitHub can pause its schedule. This weekly check fails when it hasn't
+  # succeeded in 40 days, and a failed scheduled run emails the owner.
+  watcher-recent:
+    name: The watcher succeeded in the last 40 days
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Ask GitHub when the watcher last succeeded
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python -I watch/watch.py --repo "$REPO" --check-recent
+
   self-test-rules:
     name: The self-test's verdict and report readers pass their tests
     runs-on: ubuntu-latest
@@ -315,7 +338,7 @@ jobs:
             missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, site-no-hsts,
             site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, site-redirect-cookie,
             site-env-bypass-policy, pin-included-file, pin-workflow-image, pin-precommit-tag,
-            watcher, self-test-rules]
+            watcher, watcher-recent, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

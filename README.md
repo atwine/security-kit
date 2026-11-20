@@ -100,8 +100,15 @@ session to draft the kit changes; they reach `main` through a pull request
 ([RELEASING.md](RELEASING.md)).
 
 GitHub pauses scheduled jobs in a public repository after 60 days without
-activity. If the watcher goes quiet for longer than a month, check the
-Actions tab and turn it back on.
+activity. The weekly self-test fails when the watcher hasn't succeeded in 40
+days, and a failed scheduled run emails the owner; check the Actions tab and
+turn the watcher back on. If both schedules were paused, the next push or
+pull request runs the self-test and shows it.
+
+Each kit-update issue is locked when it's opened, and tells the drafting
+session to use only the watcher's own text and to check every version,
+checksum and digest at its source link. Outside text in it (advisory
+summaries, CISA names) is stripped of links, mentions and HTML codes.
 
 ## Using it in a project
 
