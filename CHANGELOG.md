@@ -201,6 +201,22 @@
   - New self-test plants cover these, plus a committed file that
     `.gitignore` lists (Semgrep already scanned it; the plant keeps it so).
 
+- More fixes from the second security audit:
+  - The pin check reads `pyproject.toml` `[project].dependencies`, so a
+    library listed there with a range (`requests>=2`) fails.
+  - A requirements file that another one includes still counts for the
+    including file's second-package-source rule, even when it was checked
+    on its own first.
+  - Workflow keys written in quotes (`"uses":`, `"container":`) are checked.
+  - The watcher's issue and RELEASING.md say to read the issue with
+    `gh issue view <number> --json author,body`, which leaves out comments
+    anyone could add on the public repository.
+  - Not fixed, by the owner's choice (the kit is for the owner's own use):
+    five leads that need someone deliberately cheating the checks (a fake
+    job with the verdict's name, a pin to a fork-only commit, a shared npm
+    cache between jobs, a deliberate `.gitleaksignore`, and the run
+    summary's list of skip comments missing some spellings).
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,

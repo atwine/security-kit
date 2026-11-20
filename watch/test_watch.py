@@ -294,6 +294,14 @@ class WatcherTest(unittest.TestCase):
         self.assertIn("Use only the text the watcher wrote", body)
         self.assertIn("check it at its source link", body)
 
+    def test_the_issue_says_how_to_read_only_the_watcher_s_text(self):
+        # Audit run 2: comments can reach the drafting session; the body alone is the watcher's text.
+        items, _, _ = self.collect(World(planted=True))
+        _, body = watch.render(items, TODAY)
+        self.assertIn("--json author,body", body)
+        releasing = (watch.ROOT / "RELEASING.md").read_text(encoding="utf-8")
+        self.assertIn("--json author,body", releasing)
+
     def test_days_since_the_last_successful_run(self):
         runs = [
             {"event": "pull_request", "conclusion": "success", "created_at": "2026-11-28T06:17:00Z"},

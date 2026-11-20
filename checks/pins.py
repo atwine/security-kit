@@ -4,7 +4,10 @@
 
 Fails (exit 1) when it finds:
 - a Python requirement without an exact version (`==` and a literal
-  version), including in files pulled in with -r or -c;
+  version), including in files pulled in with -r or -c, and in
+  pyproject.toml's [project].dependencies (not optional-dependencies; a
+  library meant for others to install normally uses ranges, so this check
+  suits apps);
 - an editable or direct install from a branch or tag instead of a commit, or
   an archive URL without its hash;
 - a second package source (--extra-index-url, --find-links) in a file whose
@@ -34,6 +37,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 # Folders that never hold the project's own dependency files. A virtual
@@ -57,8 +61,9 @@ FLAGS = {"--prefer-binary", "--require-hashes", "--pre", "--no-index"}
 WITH_VALUE = {"--only-binary", "--no-binary", "--hash", "--config-settings", "--global-option", "--use-feature"}
 TAKES_VALUE = INCLUDES | EDITABLE | SECOND_SOURCES | REPLACEMENT_SOURCES | TRUSTED_HOST | WITH_VALUE
 LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb")
-USES = re.compile(r"\buses\s*:\s*['\"]?([^'\"\s#,}]*)")
-IMAGE = re.compile(r"\b(?:image|container)\s*:\s*['\"]?([^'\"\s#{},]+)")
+# A YAML key may be quoted ("uses": ...), so the key allows quotes, as REV does.
+USES = re.compile(r"['\"]?\buses\b['\"]?\s*:\s*['\"]?([^'\"\s#,}]*)")
+IMAGE = re.compile(r"['\"]?\b(?:image|container)\b['\"]?\s*:\s*['\"]?([^'\"\s#{},]+)")
 REV = re.compile(r"['\"]?\brev\b['\"]?\s*:\s*['\"]?([^'\"\s,}#]+)")
 
 
@@ -339,6 +344,42 @@ def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8-sig", errors="replace")
 
 
+def pyproject_problems(path: str, text: str) -> list[str]:
+    """Libraries in [project].dependencies that aren't pinned to one exact version."""
+    try:
+        project = tomllib.loads(text).get("project", {})
+    except tomllib.TOMLDecodeError as error:
+        return [f"{path}: can't be read ({error}), so its libraries weren't checked"]
+    dependencies = project.get("dependencies", []) if isinstance(project, dict) else []
+    found = []
+    for dependency in dependencies:
+        text = dependency.strip() if isinstance(dependency, str) else str(dependency)
+        direct = DIRECT.match(text.split(";", 1)[0].strip())
+        if direct:
+            problem = _url_problem(direct.group(1), False)
+            if problem:
+                found.append(f"{path}: `{text}` is {problem}")
+        elif not EXACT_PIN.match(text):
+            found.append(f"{path}: `{text}` isn't pinned to one exact version (use ==)")
+    return found
+
+
+def requirement_files_problems(paths: list[str], read) -> tuple[list[str], list[str]]:
+    """Each requirements file is checked as its own pip install, with the files it includes.
+
+    Every file gets its own record of files already read, so a file that was
+    also checked on its own still counts for the file that includes it.
+    """
+    findings: list[str] = []
+    notes: list[str] = []
+    for path in paths:
+        more, extra = requirement_problems(path, read, set())
+        findings += more
+        notes += extra
+    # An included file's problem shows up once per file that includes it.
+    return list(dict.fromkeys(findings)), list(dict.fromkeys(notes))
+
+
 def _posix(path: Path) -> str:
     return path.as_posix()
 
@@ -349,14 +390,12 @@ def main() -> int:
     parser.add_argument("--report", help="also write the findings to this JSON file")
     args = parser.parse_args()
     root = Path(args.folder)
-    findings: list[str] = []
-    notes: list[str] = []
-    seen: set[str] = set()
-    for path in files(root, "*.txt"):
-        if "requirements" in path.name or path.parent.name == "requirements":
-            more, extra = requirement_problems(_posix(path), _read, seen)
-            findings += more
-            notes += extra
+    requirement_files = [
+        _posix(path) for path in files(root, "*.txt") if "requirements" in path.name or path.parent.name == "requirements"
+    ]
+    findings, notes = requirement_files_problems(requirement_files, _read)
+    for path in files(root, "pyproject.toml"):
+        findings += pyproject_problems(_posix(path), _read(_posix(path)))
     for manifest in files(root, "package.json"):
         if not any((manifest.parent / lockfile).exists() for lockfile in LOCKFILES):
             findings.append(f"{_posix(manifest)}: no lockfile next to it, so each install can resolve different versions")

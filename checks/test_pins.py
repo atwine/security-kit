@@ -256,5 +256,58 @@ class FolderWalk(unittest.TestCase):
         self.assertEqual([Path(path).as_posix() for path in found], ["backend/requirements.txt"])
 
 
+class AuditRun2(unittest.TestCase):
+    """Honest accidents the second security audit found in the pin check."""
+
+    def test_libraries_in_pyproject_need_exact_pins(self):
+        text = '[project]\nname = "app"\nversion = "1"\ndependencies = ["requests>=2", "fastapi==0.115.7"]\n'
+        findings = pins.pyproject_problems("pyproject.toml", text)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("requests>=2", findings[0])
+
+    def test_a_pyproject_with_exact_pins_or_no_libraries_passes(self):
+        self.assertEqual(pins.pyproject_problems("pyproject.toml", '[project]\nname = "a"\ndependencies = ["fastapi==0.115.7"]\n'), [])
+        self.assertEqual(pins.pyproject_problems("pyproject.toml", "[tool.ruff]\nline-length = 100\n"), [])
+
+    def test_a_pyproject_direct_reference_with_a_hash_or_commit_passes(self):
+        sha = "a" * 40
+        text = ('[project]\nname = "a"\ndependencies = ['
+                '"x @ https://example.invalid/x-1.0-py3-none-any.whl#sha256=' + "b" * 64 + '", '
+                f'"y @ git+https://example.invalid/y.git@{sha}"]\n')
+        self.assertEqual(pins.pyproject_problems("pyproject.toml", text), [])
+        loose = '[project]\nname = "a"\ndependencies = ["y @ git+https://example.invalid/y.git@main"]\n'
+        self.assertTrue(pins.pyproject_problems("pyproject.toml", loose))
+
+    def test_a_problem_in_an_included_file_is_listed_once(self):
+        files = {"requirements/base.txt": "foo>=1\n", "requirements/prod.txt": "-r base.txt\n"}
+        findings, _ = pins.requirement_files_problems(sorted(files), files.__getitem__)
+        self.assertEqual(sum("requirements/base.txt:1" in f for f in findings), 1, findings)
+
+    def test_an_unreadable_pyproject_is_reported(self):
+        self.assertTrue(pins.pyproject_problems("pyproject.toml", "[project\n"))
+
+    def test_an_included_file_checked_first_still_counts_for_the_file_that_includes_it(self):
+        files = {
+            "requirements/base.txt": "foo==1.0\n",
+            "requirements/prod.txt": "-r base.txt\n--extra-index-url https://pkgs.example.invalid/simple\n",
+        }
+
+        def read(path):
+            if path not in files:
+                raise FileNotFoundError(path)
+            return files[path]
+
+        findings, _ = pins.requirement_files_problems(sorted(files), read)
+        self.assertTrue(any("requirements/prod.txt" in f and "second package source" in f for f in findings), findings)
+
+    def test_quoted_keys_are_checked_too(self):
+        text = (
+            "jobs:\n  a:\n    \"container\": python:3.12\n    steps:\n"
+            "      - \"uses\": actions/checkout@v4\n      - {'uses': actions/setup-node@v6}\n"
+        )
+        findings = pins.workflow_problems(".github/workflows/ci.yml", text)
+        self.assertEqual(len(findings), 3, findings)
+
+
 if __name__ == "__main__":
     unittest.main()
