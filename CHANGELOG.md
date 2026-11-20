@@ -190,6 +190,17 @@
   item F6). Without this, an empty name would fetch the project's own
   repository or the kit's newest commit and run it as the kit.
 
+- Fixes from the second security audit (honest accidents that let a check
+  pass while checking less):
+  - The secret scan reads every text file's history even when a project's
+    `.gitattributes` marks it as binary (`-diff`). A planted secret in such
+    a file used to pass.
+  - A yarn, pnpm or bun lockfile is reported as not checked even next to an
+    npm lockfile, since npm audit reads only the npm one.
+  - Access tests that were all skipped no longer count as having run.
+  - New self-test plants cover these, plus a committed file that
+    `.gitignore` lists (Semgrep already scanned it; the plant keeps it so).
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,
