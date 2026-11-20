@@ -185,10 +185,15 @@ def code_evidence(folder: Path, checks=None) -> dict[str, list[str]]:
     return {check: CODE_READERS[check](folder) + [f"not checked: {path}" for path in skipped.get(check, [])] for check in (checks or CODE_READERS)}
 
 
+def site_policy(path: Path) -> list[str]:
+    """The kit website check's findings that weren't accepted."""
+    return _read(path, lambda data: [str(item) for item in data["failing"]])
+
+
 def site_evidence(folder: Path) -> dict[str, list[str]]:
     return {
         "site_headers": zap(folder / "report.json", folder / "rules.conf"),
-        "site_policy": pins(folder / "site-policy.json"),  # a JSON list of findings, like pins.json
+        "site_policy": site_policy(folder / "site-policy.json"),
     }
 
 

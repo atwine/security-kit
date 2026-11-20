@@ -78,7 +78,7 @@ on:
         description: "JSON: site_headers (ZAP) and site_policy (the kit's own check) -> success or failure, from GitHub's record of each step"
         value: '{"site_headers": "${{ jobs.scan.outputs.site_headers }}", "site_policy": "${{ jobs.scan.outputs.site_policy }}"}'
       evidence:
-        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON site_headers -> the failing ZAP rules it reported"
+        description: "Filled only in the kit's own repository, for its self-test (empty everywhere else): JSON site_headers -> the failing ZAP rules it reported, site_policy -> the kit check's findings that weren't accepted"
         value: ${{ jobs.scan.outputs.evidence }}
 
 permissions:
@@ -312,7 +312,7 @@ jobs:
           fi
           problems=()
           { echo "| Check | Result |"; echo "|---|---|"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          for pair in "site_headers:$HEADERS:'List what ZAP found'" "site_policy:$POLICY:its step"; do
+          for pair in "site_headers:$HEADERS:The step 'List what ZAP found'" "site_policy:$POLICY:The kit check's step"; do
             name="${pair%%:*}"; rest="${pair#*:}"; outcome="${rest%%:*}"; where="${rest#*:}"
             case "$outcome" in
               success) shown="success" ;;

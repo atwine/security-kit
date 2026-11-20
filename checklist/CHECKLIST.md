@@ -56,7 +56,7 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-19 | HTTPS only; plain HTTP redirects to HTTPS | EVIDENCE `curl -I http://...` | ASVS V12 |
-| SK-20 | Protective headers on every response: Content-Security-Policy, anti-clickjacking, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, Strict-Transport-Security | AUTO `site_headers` (the first three) and `site_policy` (the last three) | A02, ASVS V3 |
+| SK-20 | Protective headers on every response (the checks see the start page, its redirects and the pages it links to): Content-Security-Policy, anti-clickjacking, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, Strict-Transport-Security | AUTO `site_headers` (the first three) and `site_policy` (the last three) | A02, ASVS V3 |
 | SK-21 | The Content-Security-Policy blocks, not just reports, and allows only the sources the site uses | AUTO `site_headers` (warns on weak directives) · EVIDENCE Mozilla Observatory | ASVS V3 |
 | SK-22 | Cross-site access (CORS) lists exact origins, never `*` | AUTO `site_policy` (any origin, or a made-up one echoed back) · EVIDENCE review | A02, API8 |
 | SK-23 | API documentation, debug pages and test routes are off in production | EVIDENCE `curl` of each | A02, API9 |

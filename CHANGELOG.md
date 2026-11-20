@@ -102,14 +102,20 @@
   - Self-test: eight new planted defects, one per gap.
 - The website scan checks what ZAP can't see over plain HTTP (review group D):
   - A new `site_policy` check (`checks/site_policy.py`) fetches the start
-    page and up to 19 pages it links to. It fails on a missing HSTS,
+    page, the same-site pages it redirects to, and up to 19 pages it links
+    to, checking every response on the way. A page that can't be fetched
+    fails as KIT-FETCH. It fails on a missing HSTS,
     Referrer-Policy or Permissions-Policy header, a cookie without Secure or
-    SameSite, and CORS that lets any site read a response. A `KIT-...`
-    line in the rules file accepts one, with a reason.
+    SameSite, and CORS that lets any site read a response. A
+    `KIT-...<tab>IGNORE<tab>(reason)` line in the rules file accepts one;
+    the reason is required. HttpOnly stays with ZAP's own rule 10010, which
+    works over plain HTTP.
   - ZAP starts with `-silent`, so it no longer downloads rule updates during
     the scan and the pinned image's rules decide.
   - The checklist's SK-17, SK-20 and SK-22 say which check covers what.
-  - Self-test: four new planted website defects. `missing-headers` now
+  - Self-test: five new planted website defects (one is a start page that
+    redirects to a page with an insecure cookie) and a second
+    environment-line bypass aimed at the kit's check. `missing-headers` now
     drops only the three headers ZAP checks.
 
 ## v0.1.0 (2026-11-19), test release
