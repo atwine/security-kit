@@ -190,6 +190,10 @@ jobs:
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
         run: |
+          # A project's .gitattributes can mark a file as binary (-diff),
+          # which makes git show its history as "Binary files differ".
+          # .git/info/attributes overrides it, so gitleaks sees every file.
+          printf '* diff\n' >> .git/info/attributes
           gitleaks git -v --redact --no-banner \
             --config "$RUNNER_TEMP/security-kit/checks/gitleaks.toml" --gitleaks-ignore-path "$RUNNER_TEMP/no-gitleaksignore" \
             --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
@@ -201,7 +205,9 @@ jobs:
           CONFIG: ${{ inputs.semgrep-config }}
         run: |
           # A project's .semgrepignore files could hide code; the kit's own
-          # replaces them, and no file is skipped for its size.
+          # replaces them, and no file is skipped for its size. Committed
+          # files that .gitignore lists are scanned too (self-test
+          # gitignored-risky-code).
           find . -name .semgrepignore -not -path './.git/*' -delete
           cp -- "$RUNNER_TEMP/security-kit/checks/semgrepignore" .semgrepignore
           status=0
