@@ -25,10 +25,10 @@ from pathlib import Path
 CODE_CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules")
 SITE_CHECKS = ("site_headers", "site_policy")
 SERIOUS = {
-    "secrets": "Leaked secrets",
-    "python_libraries": "Python libraries with known holes",
-    "node_libraries": "JavaScript libraries with known holes",
-    "access_rules": "Access rules",
+    "secrets": "The leaked-secrets check found something.",
+    "python_libraries": "The Python libraries check found something.",
+    "node_libraries": "The JavaScript libraries check found something.",
+    "access_rules": "The access-rules check found something.",
 }
 NAMES = {
     "secrets": "Leaked secrets",
@@ -44,6 +44,7 @@ CAP = 49
 ITEM = re.compile(r"^\|\s*(SK-\d+)\s*\|[^|]*\|([^|]*)\|", re.M)
 AUTO = re.compile(r"AUTO\s+([^·]*)")
 NAMED = re.compile(r"`([a-z_]+)`")
+OWNER = re.compile(r"\b(EVIDENCE|SKILL|DECISION)\b")
 
 
 def _read(text: str, checks: tuple[str, ...]) -> dict[str, str] | None:
@@ -74,25 +75,27 @@ def score(code: str, website: str) -> tuple[int, list[str]]:
     if outcomes is None:
         return 0, ["The code checks didn't report any results, so nothing can be scored."]
     passed = sum(outcome == "success" for outcome in outcomes.values())
-    points = round(100 * passed / len(outcomes))
-    reasons = [f"{SERIOUS[check]} found something." for check in SERIOUS if outcomes.get(check) == "failure"]
+    points = (200 * passed + len(outcomes)) // (2 * len(outcomes))  # halves round up
+    reasons = [SERIOUS[check] for check in SERIOUS if outcomes.get(check) == "failure"]
     reasons += [f"{NAMES[check]} didn't run." for check, outcome in outcomes.items() if outcome not in ("success", "failure")]
     return (min(points, CAP) if reasons else points), reasons
 
 
 def progress(checklist: str, outcomes: dict[str, str]) -> tuple[int, int, int]:
-    """(checklist items the kit checks this run, how many passed, items that need the owner)."""
+    """(checklist items the kit checks this run, how many passed, items that need the owner).
+
+    An item can be both: the kit checks part of it, and the owner keeps
+    evidence, runs a skill or decides the rest.
+    """
     automatic = passed = manual = 0
     for _, how in ITEM.findall(checklist):
         auto = AUTO.search(how)
         checks = NAMED.findall(auto.group(1)) if auto else []
-        if not checks:
+        if not checks or OWNER.search(how):
             manual += 1
-            continue
-        if any(check not in outcomes for check in checks):
-            continue  # its check isn't part of this run (no website scan)
-        automatic += 1
-        passed += all(outcomes[check] == "success" for check in checks)
+        if checks and all(check in outcomes for check in checks):  # its checks ran in this project
+            automatic += 1
+            passed += all(outcomes[check] == "success" for check in checks)
     return automatic, passed, manual
 
 
@@ -103,8 +106,8 @@ def report(code: str, website: str, checklist: str) -> tuple[str, int]:
         lines += [f"Capped at {CAP}, because:", ""] + [f"- {reason}" for reason in reasons] + [""]
     automatic, passed, manual = progress(checklist, results(code, website) or {})
     lines.append(
-        f"Checklist: {passed} of the {automatic} items the kit checks by itself passed. "
-        f"{manual} more need you: evidence, a skill or a decision (checklist/CHECKLIST.md)."
+        f"Checklist: {passed} of the {automatic} items the kit checks (some only in part) passed this run. "
+        f"{manual} items need you: evidence, a skill or a decision (checklist/CHECKLIST.md)."
     )
     if not website.strip():
         lines.append("")

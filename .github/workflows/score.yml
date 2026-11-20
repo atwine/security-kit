@@ -69,4 +69,6 @@ jobs:
         env:
           CODE: ${{ inputs.code-results }}
           WEBSITE: ${{ inputs.website-results }}
-        run: python3 -I kit/checks/score.py kit/checklist/CHECKLIST.md | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -o pipefail
+          python3 -I kit/checks/score.py kit/checklist/CHECKLIST.md | tee -a "$GITHUB_STEP_SUMMARY"

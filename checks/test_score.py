@@ -30,7 +30,7 @@ class Score(unittest.TestCase):
     def test_a_serious_finding_caps_the_score_at_49(self):
         points, reasons = score.score(results(CODE, secrets="failure"), results(SITE))
         self.assertLessEqual(points, 49)
-        self.assertTrue(any("Leaked secrets" in reason for reason in reasons), reasons)
+        self.assertIn("The leaked-secrets check found something.", reasons)
 
     def test_a_minor_finding_costs_points_without_a_cap(self):
         points, reasons = score.score(results(CODE, risky_code="failure"), results(SITE))
@@ -54,6 +54,26 @@ class Score(unittest.TestCase):
         self.assertEqual(score.score("not json", "")[0], 0)
 
 
+class ReviewFixes(unittest.TestCase):
+    def test_halves_round_up(self):
+        # 5 of 8 is 62.5; round() would give 62
+        self.assertEqual(score.score(results(CODE, risky_code="failure", pins="failure", python_libraries="success"),
+                                     results(SITE, site_policy="failure"))[0], 63)
+
+    def test_the_reason_names_the_check(self):
+        _, reasons = score.score(results(CODE, python_libraries="failure"), "")
+        self.assertIn("The Python libraries check found something.", reasons)
+
+    def test_items_that_also_need_evidence_count_as_needing_the_owner(self):
+        text = (
+            "| SK-01 | a | AUTO `secrets` \u00b7 EVIDENCE pre-commit | x |\n"
+            "| SK-02 | b | AUTO `pins` | x |\n"
+            "| SK-03 | c | SKILL `launch-check` | x |\n"
+        )
+        automatic, passed, manual = score.progress(text, {"secrets": "success", "pins": "success"})
+        self.assertEqual((automatic, passed, manual), (2, 2, 2))
+
+
 class Progress(unittest.TestCase):
     def test_the_real_checklist_has_automatic_and_manual_items(self):
         automatic, passed, manual = score.progress(CHECKLIST, json.loads(results(CODE + SITE)))
@@ -69,7 +89,9 @@ class Progress(unittest.TestCase):
             "| SK-04 | d | AUTO `site_headers` | x |\n"
         )
         automatic, passed, manual = score.progress(text, {"secrets": "success", "python_libraries": "success", "node_libraries": "failure"})
-        self.assertEqual((automatic, passed, manual), (2, 1, 1))  # SK-04 isn't counted without a website scan
+        # SK-02 also needs evidence, so it counts as needing the owner too; SK-04 isn't
+        # counted as automatic without a website scan.
+        self.assertEqual((automatic, passed, manual), (2, 1, 2))
 
 
 class Command(unittest.TestCase):

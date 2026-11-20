@@ -186,6 +186,12 @@ class ScoreJob(unittest.TestCase):
         self.assertIn("atwine/security-kit/.github/workflows/score.yml@KIT_SHA", block)
         self.assertIn("needs.code.outputs.results", block)
         self.assertIn("needs.website.outputs.results", block)
+        # Deleting the website job without editing the score job breaks the whole file.
+        self.assertIn("ALSO EDIT THE SCORE JOB", text)
+
+    def test_a_crash_in_the_score_script_shows(self):
+        block = jobs((WORKFLOWS / "score.yml").read_text(encoding="utf-8"))["score"]
+        self.assertIn("set -o pipefail", block)
 
 
 class Summaries(unittest.TestCase):
