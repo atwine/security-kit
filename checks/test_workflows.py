@@ -11,7 +11,12 @@ the workflows: in every job, the kit is fetched and moved out before the
 project is checked out.
 """
 
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -75,6 +80,79 @@ class ToolPins(unittest.TestCase):
     def test_the_self_test_also_runs_every_week(self):
         text = (WORKFLOWS / "self-test.yml").read_text(encoding="utf-8")
         self.assertRegex(text, r"schedule:\s*\n\s*- cron:")
+
+
+CHECK_NAME = "Check the kit's files are this workflow's own commit"
+
+
+def steps(block: str) -> list[str]:
+    """A job's steps, in order, each as its own text."""
+    return re.split(r"\n      - ", block.split("\n    steps:\n", 1)[1])[1:]
+
+
+def kit_check_script() -> str:
+    block = jobs((WORKFLOWS / "scans.yml").read_text(encoding="utf-8"))["read"]
+    step = next(step for step in steps(block) if step.startswith(f"name: {CHECK_NAME}"))
+    lines = step.split("run: |\n", 1)[1].splitlines()
+    return "\n".join(line[10:] for line in lines if line.startswith("          ") or not line.strip())
+
+
+def bash() -> str | None:
+    """bash, avoiding Windows' WSL launcher, which may have no Linux to run."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if not git:
+        return None
+    # Git for Windows: git is in cmd\ or mingw64\bin\, bash in bin\.
+    for parent in Path(git).resolve().parents:
+        if (parent / "bin" / "bash.exe").is_file():
+            return str(parent / "bin" / "bash.exe")
+    return None
+
+
+class KitCommit(unittest.TestCase):
+    """F6: every job checks that the kit files it fetched are the workflow's own commit."""
+
+    def test_every_kit_fetch_is_followed_by_the_commit_check(self):
+        for name in ("scans.yml", "site-scan.yml"):
+            for job, block in jobs((WORKFLOWS / name).read_text(encoding="utf-8")).items():
+                listed = steps(block)
+                for index, step in enumerate(listed):
+                    if "uses: actions/checkout@" not in step or KIT_FETCH not in step:
+                        continue
+                    with self.subTest(workflow=name, job=job):
+                        path = re.search(r"path: (\S+)", step).group(1)
+                        self.assertLess(index + 1, len(listed), "nothing follows the kit fetch")
+                        check = listed[index + 1]
+                        self.assertTrue(check.startswith(f"name: {CHECK_NAME}"), "the kit fetch isn't followed by the commit check")
+                        self.assertIn(f"KIT_DIR: {path}\n", check)
+                        self.assertIn("WANT_SHA: ${{ job.workflow_sha }}", check)
+                        self.assertIn("WANT_REPO: ${{ job.workflow_repository }}", check)
+
+    def test_the_check_passes_only_the_workflow_s_own_commit(self):
+        shell = bash()
+        if not shell:
+            self.skipTest("no bash here")
+        script = kit_check_script()
+        with tempfile.TemporaryDirectory() as folder:
+            kit = Path(folder) / "kit"
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-C", str(kit)]
+            subprocess.run(["git", "init", "-q", str(kit)], check=True)
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "kit"], check=True)
+            subprocess.run([*git, "remote", "add", "origin", "https://github.com/owner/kit"], check=True)
+            sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+            def outcome(repo: str, want: str) -> int:
+                env = {**os.environ, "WANT_REPO": repo, "WANT_SHA": want, "KIT_DIR": str(kit).replace("\\", "/"),
+                       "GITHUB_SERVER_URL": "https://github.com"}
+                return subprocess.run([shell, "-eo", "pipefail", "-c", script], env=env, capture_output=True).returncode
+
+            self.assertEqual(outcome("owner/kit", sha), 0)
+            self.assertNotEqual(outcome("owner/kit", "0" * 40), 0, "a different commit passed")
+            self.assertNotEqual(outcome("owner/project", sha), 0, "another repository passed")
+            self.assertNotEqual(outcome("", sha), 0, "an empty repository name passed")
+            self.assertNotEqual(outcome("owner/kit", ""), 0, "an empty commit passed")
 
 
 if __name__ == "__main__":
