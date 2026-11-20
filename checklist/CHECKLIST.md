@@ -48,7 +48,7 @@ data protection.
 | SK-14 | Passwords stored with a slow password hash (bcrypt or argon2) | EVIDENCE test | A04, ASVS V6 |
 | SK-15 | Login and sign-up are rate-limited, with lockout after repeated failures | EVIDENCE test | A07, ASVS V6, API4 |
 | SK-16 | Two-step login for admins and anyone who can read sensitive data | EVIDENCE setting and test | A07, ASVS V6 |
-| SK-17 | Session cookies are HttpOnly, Secure and SameSite, expire, and sign-out ends the session everywhere | AUTO `site_headers` (cookie flags) · EVIDENCE test | ASVS V7 |
+| SK-17 | Session cookies are HttpOnly, Secure and SameSite, expire, and sign-out ends the session everywhere | AUTO `site_headers` (HttpOnly) and `site_policy` (Secure, SameSite), on cookies set before sign-in · EVIDENCE test for session cookies | ASVS V7 |
 | SK-18 | Requests that change data and rely on cookies are protected against cross-site request forgery | EVIDENCE test | ASVS V3, ASVS V4 |
 
 ## C. Running in public
@@ -56,9 +56,9 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-19 | HTTPS only; plain HTTP redirects to HTTPS | EVIDENCE `curl -I http://...` | ASVS V12 |
-| SK-20 | Protective headers on every response: Content-Security-Policy, anti-clickjacking, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, Strict-Transport-Security | AUTO `site_headers` | A02, ASVS V3 |
+| SK-20 | Protective headers on every response: Content-Security-Policy, anti-clickjacking, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, Strict-Transport-Security | AUTO `site_headers` (the first three) and `site_policy` (the last three) | A02, ASVS V3 |
 | SK-21 | The Content-Security-Policy blocks, not just reports, and allows only the sources the site uses | AUTO `site_headers` (warns on weak directives) · EVIDENCE Mozilla Observatory | ASVS V3 |
-| SK-22 | Cross-site access (CORS) lists exact origins, never `*` | AUTO `site_headers` · EVIDENCE review | A02, API8 |
+| SK-22 | Cross-site access (CORS) lists exact origins, never `*` | AUTO `site_policy` (any origin, or a made-up one echoed back) · EVIDENCE review | A02, API8 |
 | SK-23 | API documentation, debug pages and test routes are off in production | EVIDENCE `curl` of each | A02, API9 |
 | SK-24 | Development servers listen on 127.0.0.1 only | EVIDENCE review | A02 |
 | SK-25 | Public and paid endpoints are rate-limited, and paid outside services have a spending cap | EVIDENCE test and provider setting | API4, API6, LLM10 |

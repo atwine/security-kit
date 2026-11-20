@@ -100,6 +100,17 @@
     still apply. A `gitleaks:allow` that exists only in older commits still
     hides a secret and isn't listed.
   - Self-test: eight new planted defects, one per gap.
+- The website scan checks what ZAP can't see over plain HTTP (review group D):
+  - A new `site_policy` check (`checks/site_policy.py`) fetches the start
+    page and up to 19 pages it links to. It fails on a missing HSTS,
+    Referrer-Policy or Permissions-Policy header, a cookie without Secure or
+    SameSite, and CORS that lets any site read a response. A `KIT-...`
+    line in the rules file accepts one, with a reason.
+  - ZAP starts with `-silent`, so it no longer downloads rule updates during
+    the scan and the pinned image's rules decide.
+  - The checklist's SK-17, SK-20 and SK-22 say which check covers what.
+  - Self-test: four new planted website defects. `missing-headers` now
+    drops only the three headers ZAP checks.
 
 ## v0.1.0 (2026-11-19), test release
 

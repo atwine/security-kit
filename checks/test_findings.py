@@ -189,7 +189,7 @@ class Readers(unittest.TestCase):
         self.write("rules.conf", ZAP_RULES)
         self.assertEqual(
             findings.site_evidence(self.folder),
-            {"site_headers": ["10020 Missing Anti-clickjacking Header", "10038 Content Security Policy (CSP) Header Not Set"]},
+            {"site_headers": ["10020 Missing Anti-clickjacking Header", "10038 Content Security Policy (CSP) Header Not Set"], "site_policy": []},
         )
 
     def test_the_evidence_command_prints_one_line_of_json(self):

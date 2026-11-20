@@ -186,7 +186,10 @@ def code_evidence(folder: Path, checks=None) -> dict[str, list[str]]:
 
 
 def site_evidence(folder: Path) -> dict[str, list[str]]:
-    return {"site_headers": zap(folder / "report.json", folder / "rules.conf")}
+    return {
+        "site_headers": zap(folder / "report.json", folder / "rules.conf"),
+        "site_policy": pins(folder / "site-policy.json"),  # a JSON list of findings, like pins.json
+    }
 
 
 def _plural(count: int, word: str) -> str:
