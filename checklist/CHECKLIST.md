@@ -42,7 +42,7 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-10 | Written rules for who may see and change what (`ACCESS.md`) | SKILL `access-guard` | A01, API1, API5 |
-| SK-11 | Every route is covered by an access-rule test, and a new route without a rule fails that test | AUTO `access_rules` runs the project's access tests; that they cover every route is up to the tests (`access-guard` writes one that does) · SKILL `access-guard` | A01, API1 |
+| SK-11 | Every route is covered by an access-rule test, and a new route without a rule fails that test | AUTO `access_rules` runs the project's access tests with pytest; that they cover every route is up to the tests (`access-guard` writes one that does). A project with no `ACCESS.md` and no tests named has nothing to run, and the check passes · SKILL `access-guard` | A01, API1 |
 | SK-12 | Nobody reaches another person's records by changing an ID or a field | SKILL `access-guard` tests | API1, API3 |
 | SK-13 | Login comes from a maintained library or service; no hand-written cryptography | EVIDENCE review | A07, ASVS V6, ASVS V11 |
 | SK-14 | Passwords stored with a slow password hash (bcrypt or argon2) | EVIDENCE test | A04, ASVS V6 |
@@ -108,6 +108,6 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-51 | Every change to production had a code review and a security review | EVIDENCE pull request | A06 |
-| SK-52 | A launch check passed within the last 30 days | SKILL `launch-check` · the release gate hook refuses a production pull request without a passing check from the last 30 days | |
+| SK-52 | A launch check passed within the last 30 days | SKILL `launch-check` · the `secure-start` skill's release gate, a Claude Code hook outside the kit, stops Claude from opening a production pull request without a passing check from the last 30 days or an approved exception. A pull request opened by hand isn't stopped | |
 | SK-53 | For apps holding sensitive data: an independent penetration test, or a written decision to launch without one | DECISION | |
 | SK-54 | A full security audit before the first release and every three months | EVIDENCE audit report | |

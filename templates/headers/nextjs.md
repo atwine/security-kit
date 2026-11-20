@@ -39,9 +39,10 @@ Two parts:
    Observatory only gives credit for the second.
 
    The kit's website scan fails while only the Report-Only header is sent
-   (ZAP rule 10038), and that's expected: keep the warn-only step short,
-   on a branch. Don't add a `10038 IGNORE` line to the scan's rules file to
-   make it pass, because it would then stay silent after the switch too.
+   (ZAP rule 10038), and that's expected: keep the warn-only step short.
+   Don't add a `10038 IGNORE` or `10038 WARN` line to the scan's rules file
+   to make it pass. Either one stops the rule failing the scan, and it would
+   stay silent after the switch too.
 
 The kit's website scan (`site-scan.yml`) fails when the
 Content-Security-Policy, anti-clickjacking or X-Content-Type-Options header

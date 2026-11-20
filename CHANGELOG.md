@@ -170,7 +170,9 @@
     reporting form.
   - Checklist claims now match the checks: SK-02 says npm audit fails on
     high and critical holes in shipped libraries, SK-11 says the access
-    tests decide route coverage, and SK-52 names the release gate.
+    tests decide route coverage and that a project without `ACCESS.md`
+    passes, and SK-52 says the release gate stops only Claude's own pull
+    requests.
   - The Next.js guide warns not to switch off ZAP rule 10038 during the
     warn-only Content-Security-Policy step.
   - `RELEASING.md` says how to review a change Claude drafts from a
@@ -178,8 +180,9 @@
   - gitleaks prints each leak's file and line (`-v`, secrets still
     redacted). Downloads use `curl --proto =https`, and file arguments
     follow `--`.
-  - The watcher no longer tracks Vercel, and names the LLM list as the
-    checklist does (the 2025 list, tagged 2024 on GitHub).
+  - The watcher no longer tracks Vercel, and its LLM list label says it
+    follows GitHub release tags, which can be a year behind the list's name
+    (the 2025 list is tagged 2024).
   - `spike-hello.yml`, the phase 1 test workflow, is removed. Releases
     v0.0.1 and v0.0.2 still point at it by commit.
 

@@ -18,4 +18,4 @@ you'd rather we didn't.
 issue or pull request about the hole before it's fixed. A fork of this
 repository is the right place to try things.
 
-Only the latest release gets fixes.
+Fixes go into the next release. Update to it once it's out: older releases don't get fixes of their own.
