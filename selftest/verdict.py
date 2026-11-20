@@ -30,6 +30,15 @@ EXPECTED = {
     "forge-verdict": ("forge-verdict", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "mask-failure": ("mask-failure", "secrets", ("selftest/fixture-app/settings_local.py",)),
     "env-bypass": ("site-env-bypass", "site_headers", ("10038 ", "10020 ", "10021 ")),
+    # Checks that used to pass without checking anything (group B).
+    "npm-subfolder": ("npm-subfolder", "node_libraries", ("lodash (", "GHSA-")),
+    "yarn-lockfile": ("yarn-lockfile", "node_libraries", ("not checked: selftest/fixture-app/yarn.lock",)),
+    "pyproject-library": ("pyproject-library", "python_libraries", ("urllib3==1.26.4",)),
+    "renamed-access-tests": ("renamed-access-tests", "access_rules", ("/admin/export",)),
+    "missing-access-tests": ("missing-access-tests", "access_rules", ("not checked: selftest/fixture-app/ACCESS.md",)),
+    "gitleaks-config": ("gitleaks-config", "secrets", ("selftest/fixture-app/settings_local.py",)),
+    "semgrepignore": ("semgrepignore", "risky_code", ("selftest/fixture-app/run_command.py",)),
+    "npmrc-registry": ("npmrc-registry", "node_libraries", ("lodash (", "GHSA-")),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
     "env-folder-pin": ("env-folder-pin", "pins", ("selftest/fixture-app/env/requirements.txt",)),
 }

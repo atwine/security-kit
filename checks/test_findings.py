@@ -169,6 +169,17 @@ class Readers(unittest.TestCase):
         self.assertEqual(evidence["python_libraries"], ["urllib3==1.26.4: PYSEC-2021-108, GHSA-v845-jxx5-vc9f, PYSEC-2026-0001"])
         self.assertEqual(evidence["risky_code"], [])
 
+    def test_what_a_check_could_not_look_at_is_part_of_its_evidence(self):
+        self.write("not-checked.json", {"node_libraries": ["web/yarn.lock"], "access_rules": ["ACCESS.md"]})
+        evidence = findings.code_evidence(self.folder)
+        self.assertEqual(evidence["node_libraries"], ["not checked: web/yarn.lock"])
+        self.assertEqual(evidence["access_rules"], ["not checked: ACCESS.md"])
+
+    def test_npm_reports_from_several_folders_are_read_together(self):
+        self.write("npm-audit-1.json", NPM)
+        self.write("npm-audit-2.json", {"auditReportVersion": 2, "vulnerabilities": {}})
+        self.assertEqual(findings.code_evidence(self.folder)["node_libraries"][0], "lodash (high, <=4.17.23): GHSA-35jh-r3h4-6jhm, GHSA-p6mc-m468-83gw")
+
     def test_code_evidence_can_cover_only_one_jobs_checks(self):
         self.write("gitleaks.json", GITLEAKS)
         self.assertEqual(sorted(findings.code_evidence(self.folder, ["python_libraries", "access_rules"])), ["access_rules", "python_libraries"])
