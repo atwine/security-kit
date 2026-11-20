@@ -91,6 +91,27 @@ jobs:
       fail-on-findings: false
       self-test-defect: env-folder-pin
 
+  pin-included-file:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: pin-included-file
+
+  pin-workflow-image:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: pin-workflow-image
+
+  pin-precommit-tag:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: pin-precommit-tag
+
   npm-subfolder:
     uses: ./.github/workflows/scans.yml
     with:
@@ -288,7 +309,8 @@ jobs:
             site-env-bypass, npm-subfolder, yarn-lockfile, pyproject-library, renamed-access-tests,
             missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, site-no-hsts,
             site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, site-redirect-cookie,
-            site-env-bypass-policy, watcher, self-test-rules]
+            site-env-bypass-policy, pin-included-file, pin-workflow-image, pin-precommit-tag,
+            watcher, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

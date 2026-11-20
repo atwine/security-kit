@@ -176,6 +176,30 @@ def hidden_folder_code(app: Path) -> None:
     risky_code(hidden)
 
 
+def pin_included_file(app: Path) -> None:
+    # A loose pin in a file the requirements file pulls in with -r.
+    with (app / "requirements.txt").open("a", encoding="utf-8") as requirements:
+        requirements.write("-r more.txt\n")
+    (app / "more.txt").write_text("requests>=2.31\n", encoding="utf-8")
+
+
+def pin_workflow_image(app: Path) -> None:
+    # A workflow that runs its job in a container image pinned only by tag.
+    folder = Path(".github/workflows")
+    (folder / "planted.yml").write_text(
+        "on: workflow_dispatch\njobs:\n  build:\n    runs-on: ubuntu-latest\n    container: python:3.12\n    steps:\n      - run: python --version\n",
+        encoding="utf-8",
+    )
+
+
+def pin_precommit_tag(app: Path) -> None:
+    # A pre-commit hook pinned by a tag, which its owner can move.
+    (app / ".pre-commit-config.yaml").write_text(
+        "repos:\n  - repo: https://github.com/gitleaks/gitleaks\n    rev: v8.30.1\n    hooks:\n      - id: gitleaks\n",
+        encoding="utf-8",
+    )
+
+
 def env_folder_pin(app: Path) -> None:
     # A loose pin in an ordinary project folder that happens to be called env.
     folder = app / "env"
@@ -275,6 +299,9 @@ DEFECTS = {
     "site-insecure-cookie": site_insecure_cookie,
     "site-cors-wildcard": site_cors_wildcard,
     "site-redirect-cookie": site_redirect_cookie,
+    "pin-included-file": pin_included_file,
+    "pin-workflow-image": pin_workflow_image,
+    "pin-precommit-tag": pin_precommit_tag,
 }
 
 if __name__ == "__main__":

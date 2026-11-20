@@ -117,6 +117,28 @@
     redirects to a page with an insecure cookie) and a second
     environment-line bypass aimed at the kit's check. `missing-headers` now
     drops only the three headers ZAP checks.
+- The pin check misses fewer loose pins (review group E):
+  - It reads requirements files the way pip does: comment and backslash
+    handling, every option on a line, quoted values and a byte-order mark.
+    It follows files pulled in with -r and -c (one pulled in from a URL
+    fails), and needs a literal version after ==. A second package source
+    counts across every file pip reads with it.
+  - Editable and direct installs must name a full commit hash; archive
+    URLs need their hash. A hash elsewhere in the URL no longer counts.
+  - --find-links and abbreviated --extra-index count as second sources,
+    and a --hash mentioned only in a comment doesn't count as hashing.
+  - A requirements option the check doesn't know fails it, and so does
+    --trusted-host (it turns off certificate checks). A replacement
+    --index-url is allowed and printed as a note.
+  - Workflow and composite-action images (container:, services:, image:,
+    including flow style) need a digest; an action input named image
+    doesn't count. Dockerfile base images, COPY --from and RUN --mount
+    from= images need a digest too, with ARG defaults filled in;
+    Dockerfiles used to warn. Every spelling of uses: is read.
+  - A pyvenv.cfg committed to the repository no longer hides its folder.
+  - Pre-commit hooks pinned by tag fail. The kit's own hook and the
+    template's are frozen to gitleaks v8.30.1's commit (review item F4).
+  - Self-test: three new planted pin defects.
 
 ## v0.1.0 (2026-11-19), test release
 
