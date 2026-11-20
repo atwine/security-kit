@@ -91,6 +91,62 @@ jobs:
       fail-on-findings: false
       self-test-defect: env-folder-pin
 
+  npm-subfolder:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: npm-subfolder
+
+  yarn-lockfile:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: yarn-lockfile
+
+  pyproject-library:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: pyproject-library
+
+  renamed-access-tests:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: renamed-access-tests
+
+  missing-access-tests:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: missing-access-tests
+
+  gitleaks-config:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: gitleaks-config
+
+  semgrepignore:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: semgrepignore
+
+  npmrc-registry:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: npmrc-registry
+
   site-clean:
     uses: ./.github/workflows/site-scan.yml
     with:
@@ -163,7 +219,8 @@ jobs:
     name: Each planted defect is caught, and the clean app passes
     needs: [clean, secret, vulnerable-library, node-library, risky-code, unpinned-library, unruled-route,
             forge-verdict, mask-failure, hidden-folder-code, env-folder-pin, site-clean, site-missing-headers,
-            site-env-bypass, watcher, self-test-rules]
+            site-env-bypass, npm-subfolder, yarn-lockfile, pyproject-library, renamed-access-tests,
+            missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, watcher, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -1,0 +1,6 @@
+# security-kit's gitleaks settings: gitleaks' own default rules and no
+# project allowlist. scans.yml passes this file, so a project's
+# .gitleaks.toml and .gitleaksignore are not read. An inline gitleaks:allow
+# comment still skips its own line, and the run summary lists every one.
+[extend]
+useDefault = true

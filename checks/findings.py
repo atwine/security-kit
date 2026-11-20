@@ -160,19 +160,29 @@ def zap(report: Path, rules: Path) -> list[str]:
     )
 
 
+def _each(folder: Path, pattern: str, reader) -> list[str]:
+    return [item for report in sorted(folder.glob(pattern)) for item in reader(report)]
+
+
 CODE_READERS = {
     "secrets": lambda folder: gitleaks(folder / "gitleaks.json"),
     "risky_code": lambda folder: semgrep(folder / "semgrep.json"),
     "pins": lambda folder: pins(folder / "pins.json"),
-    "node_libraries": lambda folder: npm(folder / "npm-audit.json"),
-    "python_libraries": lambda folder: [item for report in sorted(folder.glob("pip-audit-*.json")) for item in pip_audit(report)],
-    "access_rules": lambda folder: junit(folder / "access-tests.xml"),
+    "node_libraries": lambda folder: _each(folder, "npm-audit*.json", npm),
+    "python_libraries": lambda folder: _each(folder, "pip-audit-*.json", pip_audit),
+    "access_rules": lambda folder: _each(folder, "access-tests*.xml", junit),
 }
 
 
+def _not_checked(folder: Path) -> dict:
+    data = _load(folder / "not-checked.json")
+    return data if isinstance(data, dict) else {}
+
+
 def code_evidence(folder: Path, checks=None) -> dict[str, list[str]]:
-    """What each code check's report named; checks limits it to the ones a job ran."""
-    return {check: CODE_READERS[check](folder) for check in (checks or CODE_READERS)}
+    """What each code check's report named, plus what it couldn't look at; checks limits it to one job's checks."""
+    skipped = _not_checked(folder)
+    return {check: CODE_READERS[check](folder) + [f"not checked: {path}" for path in skipped.get(check, [])] for check in (checks or CODE_READERS)}
 
 
 def site_evidence(folder: Path) -> dict[str, list[str]]:

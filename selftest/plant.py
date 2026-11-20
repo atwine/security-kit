@@ -110,10 +110,10 @@ def mask_failure(app: Path) -> None:
     # A real secret for gitleaks to find, plus project code that registers the
     # word "failure" as a secret. GitHub then drops every job output holding
     # that word, which hides failed checks from the record the verdict reads.
-    # The access-rule check's `python -m pytest` runs this file instead of
-    # pytest, because -m looks in the current folder first.
+    # pytest loads this conftest.py when the access-rule check runs, and the
+    # real access tests still run after it.
     secret(app)
-    (app / "pytest.py").write_text('print("::add-mask::failure")\n', encoding="utf-8")
+    (app / "conftest.py").write_text('print("::add-mask::failure")\n', encoding="utf-8")
 
 
 def hidden_folder_code(app: Path) -> None:
@@ -128,6 +128,66 @@ def env_folder_pin(app: Path) -> None:
     folder = app / "env"
     folder.mkdir()
     (folder / "requirements.txt").write_text("requests>=2.31\n", encoding="utf-8")
+
+
+# Checks that used to pass without checking anything (review group B).
+
+
+def npm_subfolder(app: Path) -> None:
+    # The vulnerable lockfile in a subfolder, where a frontend usually lives.
+    folder = app / "frontend"
+    folder.mkdir()
+    node_library(folder)
+
+
+def yarn_lockfile(app: Path) -> None:
+    # A JavaScript lockfile npm audit can't read: it must count as not checked.
+    (app / "package.json").write_text('{"name": "fixture-app", "version": "1.0.0", "private": true}\n', encoding="utf-8")
+    (app / "yarn.lock").write_text("# yarn lockfile v1\n", encoding="utf-8")
+
+
+def pyproject_library(app: Path) -> None:
+    # A Python project that lists its libraries in pyproject.toml, with no
+    # requirements file at all.
+    folder = app / "worker"
+    folder.mkdir()
+    (folder / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["setuptools>=61"]\nbuild-backend = "setuptools.build_meta"\n\n'
+        '[project]\nname = "fixture-worker"\nversion = "0.1.0"\ndependencies = ["urllib3==1.26.4"]\n\n'
+        "[tool.setuptools]\npy-modules = []\n",
+        encoding="utf-8",
+    )
+
+
+def renamed_access_tests(app: Path) -> None:
+    # A route with no access rule, and access tests under another name.
+    unruled_route(app)
+    (app / "tests" / "test_access.py").rename(app / "tests" / "test_route_access.py")
+
+
+def missing_access_tests(app: Path) -> None:
+    # ACCESS.md says who may call each route, but no test checks it.
+    (app / "tests" / "test_access.py").unlink()
+
+
+def gitleaks_config(app: Path) -> None:
+    # A leaked token, plus a project gitleaks config that allows every path.
+    secret(app)
+    Path(".gitleaks.toml").write_text("[extend]\nuseDefault = true\n\n[allowlist]\npaths = ['''.*''']\n", encoding="utf-8")
+
+
+def semgrepignore(app: Path) -> None:
+    # Risky code, plus a project .semgrepignore that hides it from Semgrep.
+    risky_code(app)
+    Path(".semgrepignore").write_text("selftest/\n", encoding="utf-8")
+
+
+def npmrc_registry(app: Path) -> None:
+    # A vulnerable lockfile, plus a project .npmrc that sends npm audit to a
+    # registry that isn't there. (min-release-age keeps Semgrep's .npmrc rule
+    # quiet, so only npm audit is tested.)
+    node_library(app)
+    (app / ".npmrc").write_text("registry=http://127.0.0.1:9/\nmin-release-age = 7\n", encoding="utf-8")
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -149,6 +209,14 @@ DEFECTS = {
     "mask-failure": mask_failure,
     "hidden-folder-code": hidden_folder_code,
     "env-folder-pin": env_folder_pin,
+    "npm-subfolder": npm_subfolder,
+    "yarn-lockfile": yarn_lockfile,
+    "pyproject-library": pyproject_library,
+    "renamed-access-tests": renamed_access_tests,
+    "missing-access-tests": missing_access_tests,
+    "gitleaks-config": gitleaks_config,
+    "semgrepignore": semgrepignore,
+    "npmrc-registry": npmrc_registry,
 }
 
 if __name__ == "__main__":

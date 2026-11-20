@@ -29,6 +29,16 @@ GitHub silently drops a result whose text a step registered as a secret.
 Each job fetches the kit before the project, so a project folder can't be
 emptied by the kit's own fetch.
 
+A check that can't look counts as failed. [`checks/inventory.py`](checks/inventory.py)
+finds every npm lockfile, requirements file, pyproject project and ACCESS.md
+the project tracks. Something no check can read, such as a yarn lockfile or
+an ACCESS.md with no access tests, fails that check as "not checked". The
+kit uses its own scanner settings: a project's `.gitleaks.toml`,
+`.gitleaksignore`, `.semgrepignore` and `.npmrc` are ignored, and npm audit
+always asks the public registry. Inline `gitleaks:allow` and `nosemgrep`
+comments still skip their own line, and the run summary lists each one in
+the current files.
+
 The website scan has to run the project's app in the same job as ZAP. Its
 later steps ignore the environment lines that would switch off bash or
 redirect the loader and docker. A deliberately malicious app could still

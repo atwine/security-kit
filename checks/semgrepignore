@@ -1,0 +1,5 @@
+# security-kit replaces a project's .semgrepignore files with this one, so
+# Semgrep scans every file the project tracks. (With no .semgrepignore,
+# Semgrep would skip folders such as tests/ on its own.) An inline nosemgrep
+# comment still skips its own line, and the run summary lists every one.
+.git/
