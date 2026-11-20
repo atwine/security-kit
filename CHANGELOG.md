@@ -230,6 +230,10 @@
   gains a `score` job that calls it. Existing projects add that job to use
   it.
 
+- The README's setup starts with asking Claude to set up the security kit
+  (the secure-start skill), and says where results show up: the score and
+  table on each run's summary page, and the security-report skill.
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,

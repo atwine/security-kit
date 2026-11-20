@@ -111,5 +111,23 @@ class ReleasePrep(unittest.TestCase):
         self.assertNotRegex(label, r"\d{4}")
 
 
+class EasySetup(unittest.TestCase):
+    """Step 4 of the reporting plan: setting up a project starts with asking Claude."""
+
+    def setup_section(self):
+        text = read("README.md")
+        return text.split("## Using it in a project", 1)[1].split("\n## ", 1)[0]
+
+    def test_the_first_step_is_asking_claude(self):
+        first = self.setup_section().split("\n2.", 1)[0]
+        self.assertIn("set up the security kit", first)
+        self.assertIn("secure-start", first)
+
+    def test_it_says_how_results_come_back(self):
+        section = self.setup_section()
+        self.assertIn("score", section)
+        self.assertIn("security-report", section)
+
+
 if __name__ == "__main__":
     unittest.main()

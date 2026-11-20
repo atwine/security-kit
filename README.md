@@ -113,17 +113,34 @@ summaries, CISA names) is stripped of links, mentions and HTML codes.
 
 ## Using it in a project
 
-1. Copy [`templates/security.yml`](templates/security.yml) to
-   `.github/workflows/security-scans.yml` and pin it to a release's full
-   commit SHA. The `secure-start` skill in my skills repository does every
-   step here.
+1. In the project, ask Claude to **set up the security kit**. The
+   `secure-start` skill in my skills repository does every step below: it
+   looks at the project, asks what it can't work out, copies and fills in
+   the files, pins the kit to a release, runs the checks once and explains
+   what they found.
 2. In the project's branch protection, require the two checks that decide
    pass or fail. GitHub puts the name of the calling job in front, so with
    the template they are "code / Security checks (security-kit)" and
    "website / Website scan (security-kit, ZAP baseline)".
-3. Copy [`templates/dependabot.yml`](templates/dependabot.yml), so new kit
-   releases arrive as update pull requests after the cooldown.
-4. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md).
+3. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md). The
+   kit's checks cover some items; the rest need you: proof you keep (like
+   a tested backup), a skill (like launch-check) or a decision.
+
+After every push, the run's summary page on GitHub shows a security score
+out of 100 (with a serious problem it can't go above 49), how much of the checklist the
+checks covered, and every check's result: passed, what it found and where,
+or what it couldn't check. In the project, ask Claude "how did my security
+checks do?" and the `security-report` skill explains the latest run in
+plain words. The score comes with the first release after v0.1.0; on
+v0.1.0 a run shows only the results table.
+
+**By hand**, without Claude: copy
+[`templates/security.yml`](templates/security.yml) to
+`.github/workflows/security-scans.yml` and replace `KIT_SHA` and
+`KIT_VERSION` with a release's full commit SHA and tag, then copy
+[`templates/dependabot.yml`](templates/dependabot.yml) to
+`.github/dependabot.yml`, so new kit releases arrive as update pull
+requests after the cooldown.
 
 Call the workflows from `push` or `pull_request`. They refuse
 `pull_request_target` and `workflow_run`, which check out the base branch
