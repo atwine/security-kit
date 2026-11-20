@@ -70,11 +70,14 @@ class ReleasePrep(unittest.TestCase):
         self.assertIn(" -v", line)
 
     def test_downloads_are_https_only_and_arguments_cannot_be_options(self):
+        # The website scan's curl only asks the project's own app, often plain
+        # http://localhost, whether it answers; it may use http but nothing else.
+        allowed = {"scans.yml": "--proto =https ", "site-scan.yml": "--proto =http,https "}
         for name in ("scans.yml", "site-scan.yml"):
             for line in run_lines(name):
                 words = line.split()
                 if "curl" in words[:2]:
-                    self.assertIn("--proto =https", line, f"{name}: {line}")
+                    self.assertIn(allowed[name], line, f"{name}: {line}")
                 for tool in ("curl", "cp"):
                     if tool in words[:2]:
                         self.assertIn(" -- ", line, f"{name}: {line}")

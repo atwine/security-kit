@@ -24,7 +24,7 @@
       "pattern": "^\\d{4}$"
     },
     "llm_top10": {
-      "label": "OWASP Top 10 for LLM Applications",
+      "label": "OWASP Top 10 for LLM Applications (the 2025 list, tagged 2024 on GitHub)",
       "known": "2024",
       "kind": "release",
       "repo": "OWASP/www-project-top-10-for-large-language-model-applications",
@@ -74,7 +74,6 @@
   "exploited": {
     "words": [
       "next.js",
-      "vercel",
       "react",
       "node.js",
       "nodejs",

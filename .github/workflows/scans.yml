@@ -159,7 +159,7 @@ jobs:
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           mkdir -p "$RUNNER_TEMP/bin"
           cd "$RUNNER_TEMP/bin"
-          curl -sSfLO "$base/$tarball"
+          curl --proto =https --tlsv1.2 -sSfLO -- "$base/$tarball"
           echo "$GITLEAKS_SHA256  $tarball" | sha256sum -c -
           tar -xzf "$tarball" gitleaks
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -168,7 +168,7 @@ jobs:
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
         run: |
-          gitleaks git --redact --no-banner \
+          gitleaks git -v --redact --no-banner \
             --config "$RUNNER_TEMP/security-kit/checks/gitleaks.toml" --gitleaks-ignore-path "$RUNNER_TEMP/no-gitleaksignore" \
             --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
 
@@ -181,7 +181,7 @@ jobs:
           # A project's .semgrepignore files could hide code; the kit's own
           # replaces them, and no file is skipped for its size.
           find . -name .semgrepignore -not -path './.git/*' -delete
-          cp "$RUNNER_TEMP/security-kit/checks/semgrepignore" .semgrepignore
+          cp -- "$RUNNER_TEMP/security-kit/checks/semgrepignore" .semgrepignore
           status=0
           docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP/reports:/reports" -w /src \
             semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
