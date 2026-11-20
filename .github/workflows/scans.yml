@@ -44,7 +44,7 @@ on:
         type: string
         default: "p/default"
       access-tests:
-        description: The project's access-rule test files, relative to working-directory and separated by spaces. Leave empty to run every test file with "access" in its name next to each ACCESS.md
+        description: The project's access-rule test files, relative to working-directory and separated by spaces. Leave empty to find them by name (test files with "access" in the name) for each ACCESS.md under working-directory or at the repository root
         type: string
         default: ""
       fail-on-findings:
@@ -290,9 +290,11 @@ jobs:
         continue-on-error: true
         run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" pip-audit "$WD" "$RUNNER_TEMP/reports"
 
-      # The tests named in access-tests, or else every test file with
-      # "access" in its name next to each ACCESS.md, run from that folder. An
-      # ACCESS.md with no access tests fails as not checked.
+      # The tests named in access-tests, or else the test files with "access"
+      # in their name, for each ACCESS.md under the working folder or at the
+      # repository root. Each runs from the folder holding its requirements,
+      # with the project's pytest settings overridden. An ACCESS.md with no
+      # access tests, or a run where no test ran, fails as not checked.
       - id: access_rules
         name: Every route has an access rule (the project's access tests)
         continue-on-error: true

@@ -46,8 +46,29 @@ class Python(unittest.TestCase):
     def test_a_lockfile_with_nothing_pip_audit_reads_is_not_checked(self):
         self.assertEqual(inventory.python(["svc/poetry.lock", "svc/main.py"], lambda path: "")["not_checked"], ["svc/poetry.lock"])
 
-    def test_a_lockfile_next_to_a_project_is_covered(self):
-        self.assertEqual(inventory.python(["svc/pyproject.toml", "svc/uv.lock"], lambda path: PROJECT)["not_checked"], [])
+    def test_locked_versions_without_an_exported_requirements_file_are_not_checked(self):
+        # pip-audit resolves a pyproject afresh, so the locked versions that
+        # deploy would go unaudited.
+        self.assertEqual(inventory.python(["svc/pyproject.toml", "svc/uv.lock"], lambda path: PROJECT)["not_checked"], ["svc/uv.lock"])
+
+    def test_a_lockfile_next_to_an_exported_requirements_file_is_covered(self):
+        self.assertEqual(inventory.python(["svc/poetry.lock", "svc/requirements.txt"], lambda path: "")["not_checked"], [])
+
+    def test_other_python_manifests_without_a_readable_one_are_not_checked(self):
+        files = ["a/setup.py", "b/setup.cfg", "c/Pipfile", "d/requirements.in", "e/requirements.in", "e/requirements.txt"]
+        self.assertEqual(inventory.python(files, lambda path: "")["not_checked"], ["a/setup.py", "b/setup.cfg", "c/Pipfile", "d/requirements.in"])
+
+    def test_dependencies_filled_in_at_build_time_are_not_checked(self):
+        dynamic = '[project]\nname = "w"\nversion = "1"\ndynamic = ["dependencies"]\n'
+        self.assertEqual(inventory.python(["pyproject.toml"], lambda path: dynamic)["not_checked"], ["pyproject.toml"])
+
+    def test_a_project_with_no_dependencies_has_nothing_to_audit(self):
+        bare = '[project]\nname = "w"\nversion = "1"\n'
+        self.assertEqual(inventory.python(["pyproject.toml"], lambda path: bare), {"requirements": [], "projects": [], "not_checked": []})
+
+    def test_pip_audit_packages_it_could_not_look_up_are_not_checked(self):
+        report = {"dependencies": [{"name": "w", "skip_reason": "not on PyPI"}, {"name": "private-lib", "skip_reason": "not on PyPI"}, {"name": "x", "version": "1", "vulns": []}]}
+        self.assertEqual(inventory.pip_audit_skips(report, {"w"}), ["private-lib (not on PyPI)"])
 
 
 class Access(unittest.TestCase):
@@ -62,15 +83,53 @@ class Access(unittest.TestCase):
     def test_access_md_without_access_tests_is_not_checked(self):
         self.assertEqual(inventory.access(["ACCESS.md", "tests/test_other.py"], [])["not_checked"], ["ACCESS.md"])
 
+    def test_tests_elsewhere_in_the_working_folder_count(self):
+        files = ["docs/ACCESS.md", "tests/test_access_rules.py"]
+        self.assertEqual(inventory.access(files, [])["suites"], [{"folder": ".", "tests": ["tests/test_access_rules.py"]}])
+
+    def test_a_root_access_md_counts_when_the_app_is_in_a_subfolder(self):
+        files = ["ACCESS.md", "backend/requirements.txt", "backend/tests/test_access.py", "frontend/app.ts"]
+        self.assertEqual(inventory.access(files, [], "backend"), {"suites": [{"folder": "backend", "tests": ["tests/test_access.py"]}], "not_checked": []})
+
+    def test_a_root_access_md_with_no_tests_in_the_subfolder_is_not_checked(self):
+        self.assertEqual(inventory.access(["ACCESS.md", "backend/app.py"], [], "backend")["not_checked"], ["ACCESS.md"])
+
+    def test_tests_run_from_the_folder_holding_their_requirements(self):
+        files = ["ACCESS.md", "backend/requirements.txt", "backend/tests/test_access.py"]
+        self.assertEqual(inventory.access(files, [])["suites"], [{"folder": "backend", "tests": ["tests/test_access.py"]}])
+
+    def test_each_test_runs_once(self):
+        files = ["ACCESS.md", "api/ACCESS.md", "api/tests/test_access.py"]
+        self.assertEqual(inventory.access(files, [])["suites"], [{"folder": "api", "tests": ["tests/test_access.py"]}])
+
     def test_named_tests_are_used_as_given(self):
         files = ["ACCESS.md", "checks/rules_spec.py"]
         self.assertEqual(inventory.access(files, ["checks/rules_spec.py"]), {"suites": [{"folder": ".", "tests": ["checks/rules_spec.py"]}], "not_checked": []})
+
+    def test_named_tests_may_start_with_dot_slash(self):
+        self.assertEqual(inventory.access(["tests/test_access.py"], ["./tests/test_access.py"])["not_checked"], [])
 
     def test_a_named_test_that_does_not_exist_is_not_checked(self):
         self.assertEqual(inventory.access(["ACCESS.md"], ["tests/gone.py"])["not_checked"], ["tests/gone.py"])
 
     def test_no_access_md_and_no_tests_needs_nothing(self):
         self.assertEqual(inventory.access(["app.py"], []), {"suites": [], "not_checked": []})
+
+
+class Semgrep(unittest.TestCase):
+    def test_every_file_semgrep_could_not_scan_is_not_checked(self):
+        report = {
+            "results": [],
+            "errors": [
+                {"level": "warn", "type": "Timeout", "path": "app.py"},
+                {"level": "warn", "type": ["PartialParsing", []], "path": "big.py"},
+                {"level": "error", "type": "Syntax error", "path": "broken.py"},
+            ],
+        }
+        self.assertEqual(inventory.semgrep_not_scanned(report), ["app.py", "big.py", "broken.py"])
+
+    def test_an_error_without_a_file_means_the_scan_itself_failed(self):
+        self.assertEqual(inventory.semgrep_not_scanned({"errors": [{"level": "error", "type": "Rule parse error"}]}), ["the scan (Rule parse error)"])
 
 
 class Settings(unittest.TestCase):
@@ -80,9 +139,9 @@ class Settings(unittest.TestCase):
         self.assertEqual(found["ignored"], [".gitleaks.toml", ".gitleaksignore", ".semgrepignore", "web/.npmrc"])
 
     def test_inline_skip_comments_are_listed(self):
-        texts = {"app.py": "x = 1\ntoken = 'abc'  # gitleaks:allow\n", "run.py": "eval(x)  # nosemgrep\n"}
+        texts = {"app.py": "x = 1\ntoken = 'abc'  # gitleaks:allow\n", "run.py": "eval(x)  # nosemgrep\nexec(y)  # nosem\n"}
         found = inventory.settings(list(texts), texts.get)
-        self.assertEqual(found["skip_comments"], ["app.py:2 (gitleaks:allow)", "run.py:1 (nosemgrep)"])
+        self.assertEqual(found["skip_comments"], ["app.py:2 (gitleaks:allow)", "run.py:1 (nosem)", "run.py:2 (nosem)"])
 
 
 if __name__ == "__main__":

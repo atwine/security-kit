@@ -73,21 +73,32 @@
     `site-env-bypass`, and a test that every job fetches the kit first.
 - Checks no longer pass without checking (review group B):
   - `checks/inventory.py` finds every npm lockfile, requirements file,
-    pyproject project and ACCESS.md the project tracks, in any folder.
+    pyproject project and ACCESS.md the project tracks under the working
+    folder (and an ACCESS.md at the repository root).
     Anything no check can read fails that check as "not checked".
   - npm audit runs on a clean copy of each lockfile against the public
     registry, so a project `.npmrc` can't redirect it.
   - pip-audit also checks pyproject.toml projects. A pyproject that lists
-    libraries another way (poetry, pdm) counts as not checked.
-  - The access-rule check runs every test file with "access" in its name
-    next to each ACCESS.md, from that folder, and installs pytest when the
+    libraries another way (poetry, pdm, filled in at build time) counts as
+    not checked, and so do setup.py, setup.cfg, Pipfile and requirements.in
+    with nothing pip-audit reads beside them. A lockfile (uv, poetry, pylock)
+    counts as checked only with a requirements file exported next to it,
+    because pip-audit doesn't read locked versions. Packages pip-audit can't
+    look up count as not checked.
+  - The access-rule check finds test files with "access" in their name for
+    each ACCESS.md, runs each from the folder holding its requirements with
+    the project's pytest settings overridden, and installs pytest when the
     project lacks it. `access-tests` now names one or more files and is
-    empty by default. An ACCESS.md with no access tests fails.
+    empty by default. An ACCESS.md with no access tests, or a run where no
+    test ran, fails.
   - gitleaks uses the kit's own settings (`checks/gitleaks.toml`), and
-    Semgrep the kit's `.semgrepignore`, with no file size limit. Files
-    Semgrep reports it couldn't scan fail as not checked.
+    Semgrep the kit's `.semgrepignore`, with no file size limit. Any file
+    Semgrep reports it couldn't scan (a timeout, a parse failure) fails as
+    not checked.
   - The summary lists the project's scanner settings files, which are now
-    ignored, and its inline skip comments, which still apply.
+    ignored, and its inline skip comments (`gitleaks:allow`, `nosem`), which
+    still apply. A `gitleaks:allow` that exists only in older commits still
+    hides a secret and isn't listed.
   - Self-test: eight new planted defects, one per gap.
 
 ## v0.1.0 (2026-11-19), test release

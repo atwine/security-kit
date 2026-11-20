@@ -23,7 +23,7 @@ jobs:
     uses: atwine/security-kit/.github/workflows/scans.yml@KIT_SHA # KIT_VERSION
     # with:
     #   working-directory: backend          # if the app isn't at the repository root
-    #   access-tests: tests/test_access.py  # where access-guard wrote them
+    #   access-tests: tests/test_access.py  # only if your access tests have no "access" in their name
 
   website:
     uses: atwine/security-kit/.github/workflows/site-scan.yml@KIT_SHA # KIT_VERSION

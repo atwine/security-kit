@@ -110,10 +110,10 @@ def mask_failure(app: Path) -> None:
     # A real secret for gitleaks to find, plus project code that registers the
     # word "failure" as a secret. GitHub then drops every job output holding
     # that word, which hides failed checks from the record the verdict reads.
-    # The access-rule check's `python -m pytest` runs this file instead of
-    # pytest, because -m looks in the current folder first.
+    # pytest loads this conftest.py when the access-rule check runs, and the
+    # real access tests still run after it.
     secret(app)
-    (app / "pytest.py").write_text('print("::add-mask::failure")\n', encoding="utf-8")
+    (app / "conftest.py").write_text('print("::add-mask::failure")\n', encoding="utf-8")
 
 
 def hidden_folder_code(app: Path) -> None:
