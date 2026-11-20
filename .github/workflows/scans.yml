@@ -192,8 +192,9 @@ jobs:
         run: |
           # A project's .gitattributes can mark a file as binary (-diff),
           # which makes git show its history as "Binary files differ".
-          # .git/info/attributes overrides it, so gitleaks sees every file.
-          printf '* diff\n' >> .git/info/attributes
+          # .git/info/attributes resets that to git's own text-or-binary
+          # judgement (!diff), so gitleaks sees every text file's history.
+          printf '* !diff\n' >> .git/info/attributes
           gitleaks git -v --redact --no-banner \
             --config "$RUNNER_TEMP/security-kit/checks/gitleaks.toml" --gitleaks-ignore-path "$RUNNER_TEMP/no-gitleaksignore" \
             --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
