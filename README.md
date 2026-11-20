@@ -122,15 +122,17 @@ summaries, CISA names) is stripped of links, mentions and HTML codes.
    pass or fail. GitHub puts the name of the calling job in front, so with
    the template they are "code / Security checks (security-kit)" and
    "website / Website scan (security-kit, ZAP baseline)".
-3. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md): the
-   items no check covers need evidence, a skill or a decision.
+3. Work through [`checklist/CHECKLIST.md`](checklist/CHECKLIST.md). The
+   kit's checks cover some items; the rest need you: proof you keep (like
+   a tested backup), a skill (like launch-check) or a decision.
 
 After every push, the run's summary page on GitHub shows a security score
-out of 100 (a serious problem caps it at 49), how much of the checklist the
+out of 100 (with a serious problem it can't go above 49), how much of the checklist the
 checks covered, and every check's result: passed, what it found and where,
 or what it couldn't check. In the project, ask Claude "how did my security
 checks do?" and the `security-report` skill explains the latest run in
-plain words.
+plain words. The score comes with the first release after v0.1.0; on
+v0.1.0 a run shows only the results table.
 
 **By hand**, without Claude: copy
 [`templates/security.yml`](templates/security.yml) to
