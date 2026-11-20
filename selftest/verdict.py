@@ -69,6 +69,8 @@ UNIT_TESTS = {
 
 
 CLEAN_JOBS = {"clean": CODE_CHECKS, "site-clean": SITE_CHECKS}
+# score.yml jobs and the range their score must fall in.
+SCORE_JOBS = {"score-clean": (100, 100), "score-secret": (0, 49)}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 SOURCES = Path(__file__).resolve().parents[1] / "watch" / "sources.json"
 IMAGES = ("semgrep", "zap")  # the scanners the kit runs as tag@digest images
@@ -115,7 +117,7 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
     other check passes with nothing reported.
     """
     problems = []
-    known = set(CLEAN_JOBS) | {job for job, _, _ in EXPECTED.values()} | set(UNIT_TESTS)
+    known = set(CLEAN_JOBS) | {job for job, _, _ in EXPECTED.values()} | set(UNIT_TESTS) | set(SCORE_JOBS)
     for job in sorted(set(needs) - known):
         problems.append(f"{job}: the verdict doesn't know this job; add it to EXPECTED in selftest/verdict.py")
 
@@ -194,6 +196,15 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
         "",
         f"Caught {caught} of {len(EXPECTED)}.",
     ]
+    for job, (low, high) in SCORE_JOBS.items():
+        data = needs.get(job)
+        raw = ((data or {}).get("outputs") or {}).get("score", "")
+        if data is None or data.get("result") != "success" or not str(raw).isdigit():
+            problems.append(f"{job}: no score (job result '{(data or {}).get('result', 'missing')}')")
+        elif not low <= int(raw) <= high:
+            problems.append(f"{job}: scored {raw}, expected {low} to {high}")
+        else:
+            lines.append(f"{job}: scored {raw}, as expected.")
     for job, label in UNIT_TESTS.items():
         result = needs.get(job, {}).get("result", "missing")
         if result != "success":

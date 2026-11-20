@@ -30,6 +30,8 @@ def good_run():
         needs[job] = scan_job(checks, check, [f"a report line naming {item}" for item in planted])
     for job in verdict.UNIT_TESTS:
         needs[job] = {"result": "success", "outputs": {}}
+    needs["score-clean"] = {"result": "success", "outputs": {"score": "100"}}
+    needs["score-secret"] = {"result": "success", "outputs": {"score": "49"}}
     tags = verdict.pinned_tags()
     edit(needs, "clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"semgrep": tags["semgrep"]}))
     edit(needs, "site-clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"zap": tags["zap"]}))
@@ -160,6 +162,29 @@ class Verdict(unittest.TestCase):
         problems, lines = verdict.decide(needs)
         self.assertTrue(problems)
         self.assertFalse([line for line in lines if "vulnerable-library" in line and "CAUGHT" in line])
+
+
+class Scores(unittest.TestCase):
+    """Step 2: the self-test proves the score's two promises."""
+
+    def assert_fails(self, needs, word):
+        problems, _ = verdict.decide(needs)
+        self.assertTrue(any(word in problem for problem in problems), problems)
+
+    def test_a_clean_app_below_100_fails(self):
+        needs = good_run()
+        needs["score-clean"]["outputs"]["score"] = "88"
+        self.assert_fails(needs, "score-clean")
+
+    def test_a_planted_secret_scoring_above_49_fails(self):
+        needs = good_run()
+        needs["score-secret"]["outputs"]["score"] = "83"
+        self.assert_fails(needs, "score-secret")
+
+    def test_a_missing_score_fails(self):
+        needs = good_run()
+        del needs["score-secret"]
+        self.assert_fails(needs, "score-secret")
 
 
 class ToolVersions(unittest.TestCase):

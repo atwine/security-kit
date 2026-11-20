@@ -352,6 +352,23 @@ jobs:
           python -m unittest discover -s checks -p "test_*.py" -v || status=1
           exit $status
 
+  # The score's two promises: a clean app scores 100, and a serious finding
+  # (the planted secret) caps the score at 49.
+  score-clean:
+    needs: [clean, site-clean]
+    if: always()
+    uses: ./.github/workflows/score.yml
+    with:
+      code-results: ${{ needs.clean.outputs.results }}
+      website-results: ${{ needs.site-clean.outputs.results }}
+
+  score-secret:
+    needs: secret
+    if: always()
+    uses: ./.github/workflows/score.yml
+    with:
+      code-results: ${{ needs.secret.outputs.results }}
+
   # Keep this job's name: main's protection rule requires a check by this name.
   verdict:
     name: Each planted defect is caught, and the clean app passes
@@ -362,7 +379,7 @@ jobs:
             gitignored-risky-code, site-no-hsts,
             site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, site-redirect-cookie,
             site-env-bypass-policy, pin-included-file, pin-workflow-image, pin-precommit-tag,
-            watcher, watcher-recent, self-test-rules]
+            score-clean, score-secret, watcher, watcher-recent, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

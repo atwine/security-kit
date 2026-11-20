@@ -1,0 +1,74 @@
+# One security score for a project run (checks/score.py), from the results
+# of the code checks (scans.yml) and, when the project has one, the website
+# scan (site-scan.yml). It writes the score and the checklist progress to the
+# run's summary page. It only reports: it never decides pass or fail, so
+# don't require it in branch protection.
+name: security-score
+
+on:
+  workflow_call:
+    inputs:
+      code-results:
+        description: "The code checks' results output: needs.<code job>.outputs.results"
+        type: string
+        required: true
+      website-results:
+        description: "The website scan's results output, or empty when the project has no website scan"
+        type: string
+        default: ""
+    outputs:
+      score:
+        description: "The security score, 0 to 100"
+        value: ${{ jobs.score.outputs.score }}
+
+permissions:
+  contents: read
+
+jobs:
+  score:
+    name: Security score (security-kit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      score: ${{ steps.score.outputs.score }}
+    steps:
+      # A fresh machine: none of the project's code runs here. Only the kit's
+      # own files are fetched, at the same version as this workflow.
+      - name: Fetch the kit's score script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: kit
+          persist-credentials: false
+
+      # GitHub names the kit's own repository and commit for this job. If
+      # either were empty, actions/checkout would fetch the project's
+      # repository or the kit's newest commit instead, and those files would
+      # run as the kit. So the files fetched must be exactly that commit.
+      - name: Check the kit's files are this workflow's own commit
+        env:
+          WANT_REPO: ${{ job.workflow_repository }}
+          WANT_SHA: ${{ job.workflow_sha }}
+          KIT_DIR: kit
+        run: |
+          if [ -z "$WANT_REPO" ] || [ -z "$WANT_SHA" ]; then
+            echo "::error::GitHub didn't name the kit's repository and commit for this job, so the kit's files can't be trusted."
+            exit 1
+          fi
+          got_sha=$(git -C "$KIT_DIR" rev-parse HEAD)
+          got_url=$(git -C "$KIT_DIR" remote get-url origin)
+          if [ "$got_sha" != "$WANT_SHA" ] || [ "$got_url" != "$GITHUB_SERVER_URL/$WANT_REPO" ]; then
+            echo "::error::The kit's files are $got_url at $got_sha, not $WANT_REPO at $WANT_SHA."
+            exit 1
+          fi
+          echo "The kit's files are $WANT_REPO at $WANT_SHA."
+
+      - id: score
+        name: Work out the score and checklist progress (checks/score.py)
+        env:
+          CODE: ${{ inputs.code-results }}
+          WEBSITE: ${{ inputs.website-results }}
+        run: |
+          set -o pipefail
+          python3 -I kit/checks/score.py kit/checklist/CHECKLIST.md | tee -a "$GITHUB_STEP_SUMMARY"

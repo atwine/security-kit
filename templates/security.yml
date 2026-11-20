@@ -2,7 +2,9 @@
 # also satisfies the push hook that requires a security-scans workflow).
 # Replace KIT_SHA with the full commit SHA of a security-kit release and
 # KIT_VERSION with its tag. Dependabot then proposes newer releases.
-# Delete the website job if the project has no web server.
+# Delete the website job if the project has no web server. If you do, ALSO
+# EDIT THE SCORE JOB: remove "website" from its needs and delete its
+# website-results line, or GitHub rejects this file and nothing runs.
 # In branch protection, require "code / Security checks (security-kit)" and
 # "website / Website scan (security-kit, ZAP baseline)": those are the jobs
 # that decide pass or fail. If you rename the code or website job below, the
@@ -25,6 +27,7 @@ jobs:
     #   working-directory: backend          # if the app isn't at the repository root
     #   access-tests: tests/test_access.py  # only if your access tests have no "access" in their name
 
+  # Deleting this job? ALSO EDIT THE SCORE JOB below (see the top of the file).
   website:
     uses: atwine/security-kit/.github/workflows/site-scan.yml@KIT_SHA # KIT_VERSION
     with:
@@ -33,3 +36,13 @@ jobs:
       start-command: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
       url: http://127.0.0.1:8000/
       # rules-file: .github/zap-rules.conf  # your copy of checks/zap-baseline.conf, to accept a finding with a reason
+
+  # One security score out of 100 and the checklist progress, on the run's
+  # summary page. It only reports: don't require it in branch protection.
+  score:
+    needs: [code, website]
+    if: always()
+    uses: atwine/security-kit/.github/workflows/score.yml@KIT_SHA # KIT_VERSION
+    with:
+      code-results: ${{ needs.code.outputs.results }}
+      website-results: ${{ needs.website.outputs.results }}
