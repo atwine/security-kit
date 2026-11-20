@@ -30,6 +30,9 @@ def good_run():
         needs[job] = scan_job(checks, check, [f"a report line naming {item}" for item in planted])
     for job in verdict.UNIT_TESTS:
         needs[job] = {"result": "success", "outputs": {}}
+    tags = verdict.pinned_tags()
+    edit(needs, "clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"semgrep": tags["semgrep"]}))
+    edit(needs, "site-clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"zap": tags["zap"]}))
     return needs
 
 
@@ -157,6 +160,27 @@ class Verdict(unittest.TestCase):
         problems, lines = verdict.decide(needs)
         self.assertTrue(problems)
         self.assertFalse([line for line in lines if "vulnerable-library" in line and "CAUGHT" in line])
+
+
+class ToolVersions(unittest.TestCase):
+    """Group F5: the version each scanner reports must match the tag the kit pins next to its digest."""
+
+    def test_versions_matching_the_pinned_tags_pass(self):
+        self.assertEqual(verdict.version_problems({"semgrep": "1.186.0", "zap": "2.17.0"}, {"semgrep": "1.186.0", "zap": "2.17.0"}), [])
+
+    def test_a_tag_bumped_without_its_digest_fails(self):
+        problems = verdict.version_problems({"semgrep": "1.190.0", "zap": "2.17.0"}, {"semgrep": "1.186.0", "zap": "2.17.0"})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("1.190.0", problems[0])
+        self.assertIn("1.186.0", problems[0])
+
+    def test_a_missing_version_fails(self):
+        self.assertTrue(verdict.version_problems({"semgrep": "1.186.0", "zap": "2.17.0"}, {"semgrep": "1.186.0"}))
+
+    def test_the_pinned_tags_are_read_from_the_workflows(self):
+        tags = verdict.pinned_tags()
+        self.assertRegex(tags["semgrep"], r"^\d+\.\d+\.\d+$")
+        self.assertRegex(tags["zap"], r"^\d+\.\d+\.\d+$")
 
 
 if __name__ == "__main__":

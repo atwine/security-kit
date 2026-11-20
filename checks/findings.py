@@ -254,9 +254,17 @@ def show(tool: str, report: Path) -> None:
 
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "evidence-code" and set(argv[2:]) <= set(CODE_READERS):
-        print(json.dumps(code_evidence(Path(argv[1]), argv[2:])))
+        evidence = code_evidence(Path(argv[1]), argv[2:])
+        report = _load(Path(argv[1]) / "semgrep.json")
+        if isinstance(report, dict) and report.get("version"):
+            evidence["_versions"] = {"semgrep": str(report["version"])}
+        print(json.dumps(evidence))
     elif len(argv) == 2 and argv[0] == "evidence-site":
-        print(json.dumps(site_evidence(Path(argv[1]))))
+        evidence = site_evidence(Path(argv[1]))
+        report = _load(Path(argv[1]) / "report.json")
+        if isinstance(report, dict) and report.get("@version"):
+            evidence["_versions"] = {"zap": str(report["@version"])}
+        print(json.dumps(evidence))
     elif len(argv) == 3 and argv[0] == "show":
         show(argv[1], Path(argv[2]))
     else:

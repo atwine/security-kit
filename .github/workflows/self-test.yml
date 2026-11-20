@@ -10,6 +10,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Weekly, because Semgrep's default rules are fetched live (the rules
+  # licence keeps the kit from pinning a copy): a rule change that breaks a
+  # catch shows up within days.
+  schedule:
+    - cron: "41 5 * * 2"
 
 permissions:
   contents: read

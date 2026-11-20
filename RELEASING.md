@@ -16,6 +16,20 @@ pushed.
   fixture app's libraries.
 - **Your own fixes and additions.**
 
+When a kit-update issue names a new scanner version, update its pin where
+the kit records it:
+- gitleaks: `GITLEAKS_VERSION` and `GITLEAKS_SHA256` in `scans.yml`. Take the
+  checksum from the release's checksums file, and check it against your own
+  hash of the download.
+- pip-audit: rebuild `checks/pip-audit-requirements.txt` with
+  `uv pip compile` on a file holding `pip-audit==<version>`, using
+  `--python-version 3.12 --python-platform x86_64-manylinux_2_28
+  --generate-hashes` (install uv first, for example `pip install uv` in a
+  scratch environment). Rebuild `checks/pytest-requirements.txt` the same
+  way when the fixture app's pytest changes.
+- Semgrep and ZAP: change the tag and the digest together. The self-test
+  fails when the version the image reports doesn't match its tag.
+
 Each change is a pull request. Merge it once its checks pass.
 
 ## Releasing

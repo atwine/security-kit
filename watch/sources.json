@@ -41,7 +41,7 @@
     "pip-audit": {
       "label": "pip-audit",
       "repo": "pypa/pip-audit",
-      "file": ".github/workflows/scans.yml",
+      "file": "checks/pip-audit-requirements.txt",
       "pin": "pip-audit==(\\d+\\.\\d+\\.\\d+)"
     },
     "semgrep": {
