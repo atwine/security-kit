@@ -269,6 +269,20 @@ class AuditRun2(unittest.TestCase):
         self.assertEqual(pins.pyproject_problems("pyproject.toml", '[project]\nname = "a"\ndependencies = ["fastapi==0.115.7"]\n'), [])
         self.assertEqual(pins.pyproject_problems("pyproject.toml", "[tool.ruff]\nline-length = 100\n"), [])
 
+    def test_a_pyproject_direct_reference_with_a_hash_or_commit_passes(self):
+        sha = "a" * 40
+        text = ('[project]\nname = "a"\ndependencies = ['
+                '"x @ https://example.invalid/x-1.0-py3-none-any.whl#sha256=' + "b" * 64 + '", '
+                f'"y @ git+https://example.invalid/y.git@{sha}"]\n')
+        self.assertEqual(pins.pyproject_problems("pyproject.toml", text), [])
+        loose = '[project]\nname = "a"\ndependencies = ["y @ git+https://example.invalid/y.git@main"]\n'
+        self.assertTrue(pins.pyproject_problems("pyproject.toml", loose))
+
+    def test_a_problem_in_an_included_file_is_listed_once(self):
+        files = {"requirements/base.txt": "foo>=1\n", "requirements/prod.txt": "-r base.txt\n"}
+        findings, _ = pins.requirement_files_problems(sorted(files), files.__getitem__)
+        self.assertEqual(sum("requirements/base.txt:1" in f for f in findings), 1, findings)
+
     def test_an_unreadable_pyproject_is_reported(self):
         self.assertTrue(pins.pyproject_problems("pyproject.toml", "[project\n"))
 

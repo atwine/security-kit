@@ -5,7 +5,9 @@
 Fails (exit 1) when it finds:
 - a Python requirement without an exact version (`==` and a literal
   version), including in files pulled in with -r or -c, and in
-  pyproject.toml's [project].dependencies;
+  pyproject.toml's [project].dependencies (not optional-dependencies; a
+  library meant for others to install normally uses ranges, so this check
+  suits apps);
 - an editable or direct install from a branch or tag instead of a commit, or
   an archive URL without its hash;
 - a second package source (--extra-index-url, --find-links) in a file whose
@@ -349,11 +351,17 @@ def pyproject_problems(path: str, text: str) -> list[str]:
     except tomllib.TOMLDecodeError as error:
         return [f"{path}: can't be read ({error}), so its libraries weren't checked"]
     dependencies = project.get("dependencies", []) if isinstance(project, dict) else []
-    return [
-        f"{path}: `{dependency}` isn't pinned to one exact version (use ==)"
-        for dependency in dependencies
-        if not isinstance(dependency, str) or not EXACT_PIN.match(dependency.strip())
-    ]
+    found = []
+    for dependency in dependencies:
+        text = dependency.strip() if isinstance(dependency, str) else str(dependency)
+        direct = DIRECT.match(text.split(";", 1)[0].strip())
+        if direct:
+            problem = _url_problem(direct.group(1), False)
+            if problem:
+                found.append(f"{path}: `{text}` is {problem}")
+        elif not EXACT_PIN.match(text):
+            found.append(f"{path}: `{text}` isn't pinned to one exact version (use ==)")
+    return found
 
 
 def requirement_files_problems(paths: list[str], read) -> tuple[list[str], list[str]]:
@@ -368,7 +376,8 @@ def requirement_files_problems(paths: list[str], read) -> tuple[list[str], list[
         more, extra = requirement_problems(path, read, set())
         findings += more
         notes += extra
-    return findings, notes
+    # An included file's problem shows up once per file that includes it.
+    return list(dict.fromkeys(findings)), list(dict.fromkeys(notes))
 
 
 def _posix(path: Path) -> str:
