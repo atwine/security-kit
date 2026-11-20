@@ -212,6 +212,28 @@ jobs:
       fail-on-findings: false
       self-test-defect: site-cors-wildcard
 
+  site-redirect-cookie:
+    uses: ./.github/workflows/site-scan.yml
+    with:
+      working-directory: selftest/fixture-app
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: python -m uvicorn app:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      fail-on-findings: false
+      self-test-defect: site-redirect-cookie
+
+  site-env-bypass-policy:
+    uses: ./.github/workflows/site-scan.yml
+    with:
+      working-directory: selftest/fixture-app
+      python-version: "3.12"
+      setup-command: pip install -r requirements.txt
+      start-command: echo SHELLOPTS=noexec >> "$GITHUB_ENV"; python -m uvicorn app:app --host 127.0.0.1 --port 8000
+      url: http://127.0.0.1:8000/
+      fail-on-findings: false
+      self-test-defect: site-no-hsts
+
   # The app's start command also writes SHELLOPTS=noexec to $GITHUB_ENV, as
   # a library's install or start-up code could. A bash step that doesn't
   # guard against it then reads its script, runs nothing and passes.
@@ -265,7 +287,8 @@ jobs:
             forge-verdict, mask-failure, hidden-folder-code, env-folder-pin, site-clean, site-missing-headers,
             site-env-bypass, npm-subfolder, yarn-lockfile, pyproject-library, renamed-access-tests,
             missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, site-no-hsts,
-            site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, watcher, self-test-rules]
+            site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, site-redirect-cookie,
+            site-env-bypass-policy, watcher, self-test-rules]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -40,10 +40,13 @@ EXPECTED = {
     "semgrepignore": ("semgrepignore", "risky_code", ("selftest/fixture-app/run_command.py",)),
     "npmrc-registry": ("npmrc-registry", "node_libraries", ("lodash (", "GHSA-")),
     # Website rules ZAP can't check over plain HTTP (group D).
-    "no-hsts": ("site-no-hsts", "site_policy", ("KIT-HSTS ",)),
-    "no-referrer-permissions": ("site-no-referrer-permissions", "site_policy", ("KIT-REFERRER ", "KIT-PERMISSIONS ")),
-    "insecure-cookie": ("site-insecure-cookie", "site_policy", ("KIT-COOKIE-SECURE ", "KIT-COOKIE-SAMESITE ")),
-    "cors-wildcard": ("site-cors-wildcard", "site_policy", ("KIT-CORS ",)),
+    "site-no-hsts": ("site-no-hsts", "site_policy", ("KIT-HSTS ",)),
+    "site-no-referrer-permissions": ("site-no-referrer-permissions", "site_policy", ("KIT-REFERRER ", "KIT-PERMISSIONS ")),
+    "site-insecure-cookie": ("site-insecure-cookie", "site_policy", ("KIT-COOKIE-SECURE ", "KIT-COOKIE-SAMESITE ")),
+    "site-cors-wildcard": ("site-cors-wildcard", "site_policy", ("KIT-CORS ",)),
+    "site-redirect-cookie": ("site-redirect-cookie", "site_policy", ("KIT-COOKIE-SECURE http://127.0.0.1:8000/welcome",)),
+    # The environment-line bypass again, aimed at the kit's own check.
+    "env-bypass-policy": ("site-env-bypass-policy", "site_policy", ("KIT-HSTS ",)),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
     "env-folder-pin": ("env-folder-pin", "pins", ("selftest/fixture-app/env/requirements.txt",)),
 }

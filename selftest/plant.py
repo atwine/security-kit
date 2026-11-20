@@ -112,6 +112,20 @@ def site_insecure_cookie(app: Path) -> None:
         )
 
 
+def site_redirect_cookie(app: Path) -> None:
+    # The start page redirects; the page it leads to sets a cookie without
+    # Secure or SameSite (HttpOnly set, so ZAP's own rule stays quiet).
+    replace_once(
+        app / "app.py",
+        '@app.get("/", response_class=HTMLResponse)\ndef home() -> str:\n',
+        "from fastapi import Response  # noqa: E402\n"
+        "from fastapi.responses import RedirectResponse  # noqa: E402\n\n\n"
+        '@app.get("/")\ndef start():\n    return RedirectResponse("/welcome", status_code=307)\n\n\n'
+        '@app.get("/welcome", response_class=HTMLResponse)\ndef home(response: Response) -> str:\n'
+        '    response.set_cookie("session", "planted", httponly=True, secure=False, samesite=None)\n',
+    )
+
+
 def site_cors_wildcard(app: Path) -> None:
     # Any other site may read this one's responses.
     with (app / "app.py").open("a", encoding="utf-8") as code:
@@ -260,6 +274,7 @@ DEFECTS = {
     "site-no-referrer-permissions": site_no_referrer_permissions,
     "site-insecure-cookie": site_insecure_cookie,
     "site-cors-wildcard": site_cors_wildcard,
+    "site-redirect-cookie": site_redirect_cookie,
 }
 
 if __name__ == "__main__":

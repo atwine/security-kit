@@ -77,10 +77,47 @@ class Pages(unittest.TestCase):
         self.assertEqual(len(site_policy.same_site_links(URL, html)), site_policy.MAX_PAGES - 1)
 
 
+class Crawl(unittest.TestCase):
+    def fake(self, pages):
+        """A fetch function serving pages: url -> (status, headers, body)."""
+
+        def fetch(url, origin=None):
+            if url not in pages:
+                raise OSError("connection refused")
+            return pages[url]
+
+        return fetch
+
+    def test_a_same_site_redirect_is_followed_and_every_hop_is_checked(self):
+        pages = {
+            URL: (307, GOOD + [("Location", "/welcome")], ""),
+            URL + "welcome": (200, GOOD + [("Set-Cookie", "session=x; HttpOnly")], "<p>hi</p>"),
+        }
+        found = site_policy.crawl(URL, self.fake(pages))
+        self.assertIn("KIT-COOKIE-SECURE " + URL + "welcome: cookie 'session' has no Secure flag", found)
+
+    def test_a_redirect_to_another_site_is_not_followed(self):
+        pages = {URL: (302, GOOD + [("Location", "https://login.example.org/")], "")}
+        self.assertEqual(site_policy.crawl(URL, self.fake(pages)), [])
+
+    def test_a_page_that_cannot_be_fetched_is_reported(self):
+        pages = {URL: (200, GOOD, '<a href="/gone">x</a>')}
+        found = site_policy.crawl(URL, self.fake(pages))
+        self.assertEqual([item.split()[0] for item in found], ["KIT-FETCH"])
+        self.assertIn(URL + "gone", found[0])
+
+    def test_a_cookie_being_deleted_is_not_reported(self):
+        self.assertEqual(site_policy.check_page(URL, GOOD + [("Set-Cookie", "session=; Max-Age=0; Path=/")]), [])
+
+
 class Accepted(unittest.TestCase):
     def test_a_rules_file_can_accept_a_kit_check_with_a_reason(self):
         rules = "10038\tFAIL\t(CSP)\nKIT-HSTS\tIGNORE\t(our host adds HSTS on HTTPS only)\nKIT-CORS\tFAIL\t(keep)\n"
         self.assertEqual(site_policy.accepted(rules), {"KIT-HSTS"})
+
+    def test_accepting_needs_the_tab_format_and_a_reason(self):
+        rules = "KIT-HSTS IGNORE (spaces, not tabs)\nKIT-CORS\tIGNORE\n  KIT-REFERRER\tIGNORE\t(indented)\n"
+        self.assertEqual(site_policy.accepted(rules), set())
 
     def test_accepted_findings_do_not_fail(self):
         findings = site_policy.check_page(URL, without("Strict-Transport-Security"))
