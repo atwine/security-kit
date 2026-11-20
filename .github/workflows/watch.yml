@@ -55,7 +55,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: python watch/watch.py --repo "$REPO" --dry-run
+        run: python -I watch/watch.py --repo "$REPO" --dry-run
 
   watch:
     name: Look for changes the kit should follow
@@ -81,4 +81,4 @@ jobs:
         run: |
           args=(--repo "$REPO" --window-days "$WINDOW_DAYS")
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
-          python watch/watch.py "${args[@]}"
+          python -I watch/watch.py "${args[@]}"

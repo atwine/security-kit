@@ -289,8 +289,11 @@ jobs:
         run: python -m unittest discover -s watch -v
 
   # The watcher can stop without anyone noticing: its runs can keep failing,
-  # or GitHub can pause its schedule. This weekly check fails when it hasn't
-  # succeeded in 40 days, and a failed scheduled run emails the owner.
+  # or GitHub can pause its schedule. This check runs on every push and pull
+  # request and weekly, and fails when the watcher hasn't succeeded in 40 days.
+  # GitHub emails a failed scheduled run to whoever last changed the schedule,
+  # if their notification settings allow it. Forks have no watcher runs, so
+  # the check passes there with a note.
   watcher-recent:
     name: The watcher succeeded in the last 40 days
     runs-on: ubuntu-latest
@@ -309,7 +312,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: python -I watch/watch.py --repo "$REPO" --check-recent
+          FORK: ${{ github.event.repository.fork }}
+        run: |
+          if [ "$FORK" = "true" ]; then
+            echo "This is a fork, which runs no watcher, so there is nothing to check."
+            exit 0
+          fi
+          python -I watch/watch.py --repo "$REPO" --check-recent
 
   self-test-rules:
     name: The self-test's verdict and report readers pass their tests

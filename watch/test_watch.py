@@ -308,6 +308,59 @@ class WatcherTest(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request'", text.split("concurrency:", 1)[1].split("jobs:", 1)[0])
         self.assertGreaterEqual(watch.DEFAULT_WINDOW_DAYS, 62)
 
+    def test_outside_text_sits_in_code_spans_so_gh_references_make_no_link(self):
+        world = World(planted=True)
+        kev = world.kev()
+        kev["vulnerabilities"][-1]["vulnerabilityName"] = "Bug, see GH-12 and #13"
+
+        def get(url: str):
+            if url == watch.KEV_URL:
+                return kev, None
+            if urllib.parse.urlparse(url).path == "/advisories":
+                found = world.get(url)[0]
+                for advisory in found:
+                    advisory["summary"] = "Bypass, details in GH-12."
+                return found, None
+            return world.get(url)
+
+        items, _, _ = watch.collect(get, SOURCES, watch.ROOT, TODAY, WINDOW)
+        texts = {item.section: item.text for item in items if item.section in ("advisory", "exploited")}
+        self.assertIn("`Bypass, details in GH-12`", texts["advisory"])
+        self.assertIn("`next`", texts["advisory"])
+        self.assertIn("`Bug, see GH-12 and 13`", texts["exploited"])
+        for text in texts.values():
+            outside = re.sub(r"`[^`]*`", "", text)
+            self.assertNotIn("GH-12", outside)
+
+    def test_a_cisa_entry_with_no_product_name_is_still_read(self):
+        world = World(planted=True)
+        kev = world.kev()
+        kev["vulnerabilities"].append({"cveID": "CVE-2026-2001", "vendorProject": "PostgreSQL", "product": "",
+                                       "vulnerabilityName": "x", "dateAdded": "2026-11-28"})
+
+        def get(url: str):
+            return (kev, None) if url == watch.KEV_URL else world.get(url)
+
+        items, _, failures = watch.collect(get, SOURCES, watch.ROOT, TODAY, WINDOW)
+        self.assertEqual(failures, [])
+        self.assertIn("exploited:CVE-2026-2001", {item.key for item in items})
+
+    def test_entity_lookalikes_stay_readable(self):
+        self.assertEqual(watch.clean("AT&T and R&D"), "ATT and RD")
+        self.assertEqual(watch.clean("a &amp; b &#64;c"), "a b c")
+
+    def test_an_issue_an_earlier_run_left_unlocked_is_locked(self):
+        bot = {"login": "github-actions[bot]", "type": "Bot"}
+        self.run_watcher(World(planted=False, issues=[{"number": 7, "body": "", "user": bot, "locked": False},
+                                                      {"number": 8, "body": "", "user": bot, "locked": True}]))
+        self.assertIn(("PUT", f"https://api.github.com/repos/{REPO}/issues/7/lock"), self.calls)
+        self.assertNotIn(("PUT", f"https://api.github.com/repos/{REPO}/issues/8/lock"), self.calls)
+
+    def test_the_watcher_recent_check_passes_in_forks(self):
+        text = (watch.ROOT / ".github" / "workflows" / "self-test.yml").read_text(encoding="utf-8")
+        job = text.split("  watcher-recent:", 1)[1].split("\n  self-test-rules:", 1)[0]
+        self.assertIn("github.event.repository.fork", job)
+
     def test_outside_text_cannot_mention_link_or_add_markup(self):
         text = watch.clean("Bypass @octocat <script>alert(1)</script> [click](https://evil.example) `rm` #12 | ok")
         for bad in ("@", "<", ">", "[", "]", "(", ")", "`", "#", "|", "://", "evil"):

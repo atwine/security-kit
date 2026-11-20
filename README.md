@@ -100,9 +100,10 @@ session to draft the kit changes; they reach `main` through a pull request
 ([RELEASING.md](RELEASING.md)).
 
 GitHub pauses scheduled jobs in a public repository after 60 days without
-activity. The weekly self-test fails when the watcher hasn't succeeded in 40
-days, and a failed scheduled run emails the owner; check the Actions tab and
-turn the watcher back on. If both schedules were paused, the next push or
+activity. The self-test, which runs weekly and on every push and pull request,
+fails when the watcher hasn't succeeded in 40 days. GitHub emails a failed
+scheduled run to whoever last changed the schedule, if their notification
+settings allow it; check the Actions tab and turn the watcher back on. If both schedules were paused, the next push or
 pull request runs the self-test and shows it.
 
 Each kit-update issue is locked when it's opened, and tells the drafting

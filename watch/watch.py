@@ -50,7 +50,7 @@ CVE_ID = re.compile(r"^CVE-\d{4}-\d{4,}$")
 SAFE_TAG = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 VERSION = re.compile(r"^v?(\d+(?:\.\d+){1,3})$")
 UNSAFE = re.compile(r"[^A-Za-z0-9 .,:;'\"/+%!?=_-]")
-ENTITY = re.compile(r"&#?\w+;?")
+ENTITY = re.compile(r"&(#\d+|#x[0-9a-f]+|[a-z]+);", re.I)
 LINKISH = re.compile(r"\S*(://|www\.)\S*", re.I)
 BOT = "github-actions[bot]"
 DEFAULT_WINDOW_DAYS = 62  # two months, so one missed run still overlaps
@@ -83,6 +83,12 @@ def clean(text: object, limit: int = 160) -> str:
     flat = UNSAFE.sub("", flat)
     flat = " ".join(LINKISH.sub("", flat).split())  # after stripping, so a link can't be rebuilt
     return flat if len(flat) <= limit else flat[: limit - 3].rstrip() + "..."
+
+
+def quoted(text: object, limit: int = 160) -> str:
+    """Cleaned outside text in a code span, where GitHub makes no links, mentions or #n/GH-n references."""
+    flat = clean(text, limit).rstrip(".")
+    return f"`{flat}`" if flat else "(none given)"
 
 
 def version(text: str) -> tuple[int, ...] | None:
@@ -280,17 +286,17 @@ def advisories(get: Getter, sources: dict, today: dt.date, window_days: int) -> 
             if not GHSA_ID.match(ghsa):
                 raise SourceError(f"unexpected advisory id {ghsa!r}")
             names = sorted({
-                clean((affected.get("package") or {}).get("name", ""), 60)
+                quoted((affected.get("package") or {}).get("name", ""), 60)
                 for affected in advisory.get("vulnerabilities") or []
                 if isinstance(affected, dict)
-            } - {""})
+            } - {"(none given)"})
             found[ghsa] = Item(
                 key=f"advisory:{ghsa}",
                 section="advisory",
                 text=(
                     f"**{ghsa}** ({', '.join(names) or 'package not named'}), published "
-                    f"{clean(str(advisory.get('published_at', ''))[:10], 10)}: "
-                    f"{clean(advisory.get('summary', '')).rstrip('.')}. Decide whether the kit should change "
+                    f"{quoted(str(advisory.get('published_at', ''))[:10], 10)}: "
+                    f"{quoted(advisory.get('summary', ''))}. Decide whether the kit should change "
                     "(a check, a template default or a checklist item); each project's own Dependabot and "
                     "audits already flag the library itself."
                 ),
@@ -308,13 +314,13 @@ def exploited(get: Getter, sources: dict, today: dt.date, window_days: int) -> t
     start = (today - dt.timedelta(days=window_days)).isoformat()
     words = [word.lower() for word in sources["exploited"]["words"]]
     odd = [entry for entry in entries if not isinstance(entry, dict) or not all(
-        isinstance(entry.get(field), str) and entry.get(field) for field in ("cveID", "dateAdded", "vendorProject", "product"))]
+        isinstance(entry.get(field), str) and entry.get(field) for field in ("cveID", "dateAdded"))]
     if odd:
         raise SourceError(f"CISA's exploited list has {len(odd)} entries in an unexpected shape, so some may have been missed")
     items = []
     for entry in entries:
         added = str(entry.get("dateAdded", ""))
-        product = f"{entry.get('vendorProject', '')} {entry.get('product', '')}"
+        product = f"{entry.get('vendorProject') or ''} {entry.get('product') or ''}".strip()
         if not start <= added <= today.isoformat() or not mentions(product, words):
             continue
         cve = str(entry.get("cveID", ""))
@@ -324,8 +330,8 @@ def exploited(get: Getter, sources: dict, today: dt.date, window_days: int) -> t
             key=f"exploited:{cve}",
             section="exploited",
             text=(
-                f"**{cve}** in {clean(product, 80)}, added {clean(added, 10)}: "
-                f"{clean(entry.get('vulnerabilityName', '')).rstrip('.')}. Attackers are using it now: "
+                f"**{cve}** in {quoted(product, 80)}, added {quoted(added, 10)}: "
+                f"{quoted(entry.get('vulnerabilityName', ''))}. Attackers are using it now: "
                 "update any project that uses it, and decide whether the checklist or templates need a rule."
             ),
             links=(f"https://nvd.nist.gov/vuln/detail/{cve}", f"{KEV_PAGE}?search_api_fulltext={cve}"),
@@ -354,13 +360,21 @@ def collect(get: Getter, sources: dict, root: Path, today: dt.date, window_days:
     return items, notes, failures
 
 
-def reported_keys(get: Getter, repo: str) -> set[str]:
+def watcher_issues(get: Getter, repo: str) -> list[dict]:
+    """kit-update issues the watcher's own bot opened. Issues and comments from anyone else don't count."""
+    return [
+        issue
+        for issue in get_all(get, f"{API}/repos/{repo}/issues?labels={LABEL}&state=all&per_page=100")
+        if isinstance(issue, dict) and "pull_request" not in issue
+        and isinstance(issue.get("user"), dict) and issue["user"].get("login") == BOT
+    ]
+
+
+def reported_keys(issues: list[dict]) -> set[str]:
     keys: set[str] = set()
-    for issue in get_all(get, f"{API}/repos/{repo}/issues?labels={LABEL}&state=all&per_page=100"):
-        author = (issue.get("user") or {}) if isinstance(issue, dict) else {}
-        if isinstance(issue, dict) and "pull_request" not in issue and author.get("login") == BOT:
-            for marker in MARKER.finditer(issue.get("body") or ""):
-                keys.update(marker.group(1).split())
+    for issue in issues:
+        for marker in MARKER.finditer(issue.get("body") or ""):
+            keys.update(marker.group(1).split())
     return keys
 
 
@@ -386,7 +400,7 @@ def render(items: list[Item], today: dt.date) -> tuple[str, str]:
     return title, "\n".join(lines)
 
 
-def run(get: Getter, post: Callable[[str, dict], dict], repo: str, root: Path, sources: dict,
+def run(get: Getter, post: Callable[..., dict], repo: str, root: Path, sources: dict,
         today: dt.date, window_days: int, dry_run: bool, say: Callable[[str], None]) -> dict | None:
     items, notes, failures = collect(get, sources, root, today, window_days)
     say("Checked:")
@@ -395,7 +409,8 @@ def run(get: Getter, post: Callable[[str, dict], dict], repo: str, root: Path, s
     for failure in failures:
         say(f"- Couldn't read {failure}")
     issue = None
-    already = reported_keys(get, repo)
+    earlier = watcher_issues(get, repo)
+    already = reported_keys(earlier)
     new = [item for item in items if item.key not in already]
     if not new:
         if items:
@@ -410,6 +425,14 @@ def run(get: Getter, post: Callable[[str, dict], dict], repo: str, root: Path, s
             issue = post(f"{API}/repos/{repo}/issues", {"title": title, "body": body, "labels": [LABEL]})
             post(f"{API}/repos/{repo}/issues/{issue.get('number')}/lock", {}, method="PUT")
             say(f"\nOpened and locked {issue.get('html_url', 'the issue')}: {title}")
+    # A lock that failed on an earlier run is tried again here.
+    for old in earlier:
+        if old.get("locked") is False and isinstance(old.get("number"), int):
+            if dry_run:
+                say(f"Would lock issue {old['number']}, which an earlier run left unlocked.")
+            else:
+                post(f"{API}/repos/{repo}/issues/{old['number']}/lock", {}, method="PUT")
+                say(f"Locked issue {old['number']}, which an earlier run left unlocked.")
     if failures:
         raise SourceError("some sources couldn't be read, so this run may have missed changes: " + "; ".join(failures))
     return issue
@@ -447,11 +470,11 @@ def main(argv: list[str] | None = None) -> int:
     today = dt.datetime.now(dt.timezone.utc).date()
     if args.check_recent:
         try:
-            data, _ = http_get(f"{API}/repos/{args.repo}/actions/workflows/watch.yml/runs?per_page=100")
+            data, _ = http_get(f"{API}/repos/{args.repo}/actions/workflows/watch.yml/runs?status=success&per_page=100")
         except SourceError as error:
             print(f"::error::Couldn't read the watcher's runs: {error}")
             return 1
-        days = days_since_success((data or {}).get("workflow_runs", []) if isinstance(data, dict) else [], today)
+        days = days_since_success(data.get("workflow_runs", []) if isinstance(data, dict) else [], today)
         if days is None or days > RECENT_DAYS:
             print(f"::error::The watcher hasn't succeeded in the last {RECENT_DAYS} days ({'never' if days is None else f'{days} days ago'}). "
                   "Check its runs under Actions, and turn its schedule back on if GitHub paused it.")
