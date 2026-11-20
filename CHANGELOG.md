@@ -222,6 +222,14 @@
   where it is, plus what to do), couldn't check, or didn't run. The step
   only reports, so it never fails the job.
 
+- One security score per run: the new `score.yml` workflow turns the code
+  checks' and website scan's results into a score out of 100 (each passing
+  check earns an equal share; a leaked secret, a library with a known hole,
+  a failing access rule or a check that didn't run caps it at 49) and a
+  checklist progress line, on the run's summary page. The project template
+  gains a `score` job that calls it. Existing projects add that job to use
+  it.
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,

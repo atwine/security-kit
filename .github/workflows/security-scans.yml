@@ -14,3 +14,10 @@ permissions:
 jobs:
   scans:
     uses: ./.github/workflows/scans.yml
+
+  score:
+    needs: scans
+    if: always()
+    uses: ./.github/workflows/score.yml
+    with:
+      code-results: ${{ needs.scans.outputs.results }}
