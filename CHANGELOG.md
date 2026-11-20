@@ -139,6 +139,17 @@
   - Pre-commit hooks pinned by tag fail. The kit's own hook and the
     template's are frozen to gitleaks v8.30.1's commit (review item F4).
   - Self-test: three new planted pin defects.
+- The kit's own tools are pinned by the kit (review group F):
+  - gitleaks is checked against a checksum recorded in `scans.yml`, not
+    one downloaded from the same release.
+  - pip-audit installs from `checks/pip-audit-requirements.txt`, which pins
+    it and every library it needs with hashes.
+  - The self-test checks that the Semgrep and ZAP versions that ran match
+    the tags pinned next to their digests, so a tag bumped without its
+    digest is caught.
+  - Semgrep's default rules stay live, because Semgrep's rules licence
+    keeps the kit from pinning a copy. The self-test now also runs weekly,
+    and the README no longer claims those rules are pinned.
 
 ## v0.1.0 (2026-11-19), test release
 

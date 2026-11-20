@@ -9,7 +9,9 @@ wrong.
 
 import json
 import os
+import re
 import sys
+from pathlib import Path
 
 CODE_CHECKS = ("secrets", "risky_code", "pins", "node_libraries", "python_libraries", "access_rules")
 SITE_CHECKS = ("site_headers", "site_policy")
@@ -63,6 +65,30 @@ UNIT_TESTS = {
 
 
 CLEAN_JOBS = {"clean": CODE_CHECKS, "site-clean": SITE_CHECKS}
+WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+# Each scanner image the kit pins as tag@digest, and the workflow that pins it.
+PINNED_IMAGES = {"semgrep": ("scans.yml", r"semgrep/semgrep:(\d+\.\d+\.\d+)@sha256"), "zap": ("site-scan.yml", r"zaproxy:(\d+\.\d+\.\d+)@sha256")}
+
+
+def pinned_tags() -> dict:
+    """The version tag the kit pins next to each scanner image's digest."""
+    tags = {}
+    for tool, (workflow, pattern) in PINNED_IMAGES.items():
+        found = re.search(pattern, (WORKFLOWS / workflow).read_text(encoding="utf-8"))
+        tags[tool] = found.group(1) if found else ""
+    return tags
+
+
+def version_problems(pinned: dict, reported: dict) -> list[str]:
+    """Docker runs the digest, not the tag, so the version that ran must match the tag."""
+    problems = []
+    for tool, tag in pinned.items():
+        ran = reported.get(tool)
+        if not ran:
+            problems.append(f"{tool}: the clean run reported no version, so the pinned tag {tag} can't be checked against the image that ran")
+        elif ran != tag:
+            problems.append(f"{tool}: the workflow pins tag {tag}, but the image that ran is {ran}; the tag and digest disagree")
+    return problems
 
 
 def checks_of(job: str) -> tuple[str, ...]:
@@ -101,7 +127,11 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
             evidence = {}
             for name, raw in sorted(outputs.items()):
                 if name.startswith("evidence"):
-                    evidence.update(json.loads(raw or "{}"))
+                    part = json.loads(raw or "{}")
+                    versions = {**evidence.get("_versions", {}), **part.get("_versions", {})}
+                    evidence.update(part)
+                    if versions:
+                        evidence["_versions"] = versions
             return json.loads(outputs.get("results") or "{}"), evidence
         except ValueError:
             problems.append(f"{job}: its results or evidence aren't readable JSON")
@@ -114,11 +144,14 @@ def decide(needs: dict) -> tuple[list[str], list[str]]:
         elif evidence.get(check):
             problems.append(f"{who}: {check} passed but reported {short(evidence[check])}")
 
+    reported = {}
     for job, checks in CLEAN_JOBS.items():
         data = read(job)
         if data:
             for check in checks:
                 must_pass(job, check, *data, who=f"clean app ({job})")
+            reported.update(data[1].get("_versions") or {})
+    problems.extend(version_problems(pinned_tags(), reported))
 
     rows = []
     for defect, (job, check, planted) in EXPECTED.items():

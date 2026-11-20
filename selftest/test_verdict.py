@@ -30,6 +30,9 @@ def good_run():
         needs[job] = scan_job(checks, check, [f"a report line naming {item}" for item in planted])
     for job in verdict.UNIT_TESTS:
         needs[job] = {"result": "success", "outputs": {}}
+    tags = verdict.pinned_tags()
+    edit(needs, "clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"semgrep": tags["semgrep"]}))
+    edit(needs, "site-clean", "evidence", lambda evidence: evidence.__setitem__("_versions", {"zap": tags["zap"]}))
     return needs
 
 

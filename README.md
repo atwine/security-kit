@@ -16,7 +16,11 @@ every project starts secure and stays current as security standards change.
 | [`watch/`](watch) | The monthly watcher ([`watch.yml`](.github/workflows/watch.yml)): looks for new versions of the scanners the kit pins, new OWASP editions, critical advisories for FastAPI, Starlette, Next.js and React, and actively exploited holes in those stacks, then opens one `kit-update` issue listing them. |
 
 Both workflows load the kit's own scripts at the exact version the project
-pinned, so a project on one release always runs that release's checks.
+pinned, so a project on one release always runs that release's scripts,
+scanner versions and website rules. Semgrep's default rules are the
+exception: Semgrep downloads them on each run, because its rules licence
+keeps the kit from pinning a copy. The kit's self-test runs weekly so a
+rule change that breaks a catch shows up within days.
 
 The code checks run in two jobs. gitleaks, Semgrep, the pin check and npm
 audit run on a machine where none of the project's code ever runs. pip-audit
