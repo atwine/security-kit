@@ -45,6 +45,10 @@ EXPECTED = {
     "site-insecure-cookie": ("site-insecure-cookie", "site_policy", ("KIT-COOKIE-SECURE ", "KIT-COOKIE-SAMESITE ")),
     "site-cors-wildcard": ("site-cors-wildcard", "site_policy", ("KIT-CORS ",)),
     "site-redirect-cookie": ("site-redirect-cookie", "site_policy", ("KIT-COOKIE-SECURE http://127.0.0.1:8000/welcome",)),
+    # Loose pins the pin check missed (group E).
+    "pin-included-file": ("pin-included-file", "pins", ("selftest/fixture-app/more.txt:1",)),
+    "pin-workflow-image": ("pin-workflow-image", "pins", (".github/workflows/planted.yml", "python:3.12")),
+    "pin-precommit-tag": ("pin-precommit-tag", "pins", ("selftest/fixture-app/.pre-commit-config.yaml", "v8.30.1")),
     # The environment-line bypass again, aimed at the kit's own check.
     "env-bypass-policy": ("site-env-bypass-policy", "site_policy", ("KIT-HSTS ",)),
     "hidden-folder-code": ("hidden-folder-code", "risky_code", ("selftest/fixture-app/.security-kit/run_command.py",)),
