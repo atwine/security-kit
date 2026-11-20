@@ -213,18 +213,21 @@ CHECK_TEXT = {
                          "update each library to a version with the fix, in requirements.txt or pyproject.toml."),
     "access_rules": ("Access rules (the project's access tests)",
                      "fix the failing access tests or the route they caught. A route with no rule needs a test (the access-guard skill writes one)."),
-    "site_headers": ("Website safety headers (ZAP)",
-                     "add the missing headers; templates/headers in the kit has safe defaults."),
+    "site_headers": ("Website scan (ZAP)",
+                     "fix each rule ZAP named; for missing headers, templates/headers in the kit has safe defaults."),
     "site_policy": ("Website rules (HTTPS, cookies, CORS)",
                     "fix each item: Strict-Transport-Security, Referrer-Policy, Permissions-Policy, cookie flags and CORS."),
 }
 NOT_CHECKED = "not checked: "
+UNREADABLE = "unreadable report: "
 SHOWN = 20
+LONGEST = 300
 
 
 def _cell(text: str) -> str:
-    """Text from a report, made safe for one Markdown table cell or list item."""
-    return " ".join(str(text).split()).replace("`", "'").replace("|", "/")
+    """Text from a report, made safe and short for one Markdown table cell or list item."""
+    flat = " ".join(str(text).split()).replace("`", "'").replace("|", "/")
+    return flat if len(flat) <= LONGEST else flat[: LONGEST - 3] + "..."
 
 
 def _result(outcome: str, found: list[str], skipped: list[str]) -> str:
@@ -243,8 +246,8 @@ def summary(outcomes: dict[str, str], evidence: dict[str, list[str]]) -> str:
     for check, outcome in outcomes.items():
         title, advice = CHECK_TEXT.get(check, (check, "see this check's step log."))
         items = evidence.get(check, [])
-        found = [item for item in items if not item.startswith(NOT_CHECKED)]
-        skipped = [item[len(NOT_CHECKED):] for item in items if item.startswith(NOT_CHECKED)]
+        found = [item for item in items if not item.startswith((NOT_CHECKED, UNREADABLE))]
+        skipped = [item.removeprefix(NOT_CHECKED) for item in items if item.startswith((NOT_CHECKED, UNREADABLE))]
         result = _result(outcome, found, skipped)
         table.append(f"| {title} | {result} |")
         if result == "passed":
@@ -254,7 +257,9 @@ def summary(outcomes: dict[str, str], evidence: dict[str, list[str]]) -> str:
             lines.append(f"What to do: {advice}")
         if skipped:
             lines.append("Couldn't check these, so the check fails until they can be checked or are removed:")
-        if not found and not skipped:
+        if outcome not in ("success", "failure"):
+            lines.append("This check didn't run, so it has no result. The step before it in this job failed or was skipped.")
+        elif not found and not skipped:
             lines.append("No details in its report. Open this check's step log.")
         lines.append("")
         shown = [f"- `{_cell(item)}`" for item in found + skipped]
@@ -340,10 +345,13 @@ def main(argv: list[str]) -> int:
     elif len(argv) >= 3 and argv[0] in ("summary", "summary-site") and all("=" in pair for pair in argv[2:]):
         outcomes = _outcomes(argv[2:])
         folder = Path(argv[1])
-        if argv[0] == "summary":
-            evidence = code_evidence(folder, [check for check in outcomes if check in CODE_READERS])
-        else:
-            evidence = site_evidence(folder)
+        try:
+            if argv[0] == "summary":
+                evidence = code_evidence(folder, [check for check in outcomes if check in CODE_READERS])
+            else:
+                evidence = site_evidence(folder)
+        except Exception as error:  # the summary only reports; a strange report must not stop it
+            evidence = {check: [f"{UNREADABLE}{type(error).__name__}"] for check in outcomes}
         print(summary(outcomes, evidence))
     elif len(argv) == 3 and argv[0] == "show":
         show(argv[1], Path(argv[2]))

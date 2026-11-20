@@ -238,9 +238,11 @@ jobs:
         run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" npm-audit "$WD" "$RUNNER_TEMP/reports"
 
       # Every check's result in plain words on the run's summary page:
-      # passed, what it found (file and line), or what it couldn't check.
+      # passed, what it found and where, or what it couldn't check. It only
+      # reports, so it never fails the job (continue-on-error).
       - name: What each check found
         if: always()
+        continue-on-error: true
         env:
           SECRETS: ${{ steps.secrets.outcome }}
           RISKY_CODE: ${{ steps.risky_code.outcome }}
@@ -375,6 +377,7 @@ jobs:
 
       - name: What each check found
         if: always()
+        continue-on-error: true
         env:
           PYTHON_LIBRARIES: ${{ steps.python_libraries.outcome }}
           ACCESS_RULES: ${{ steps.access_rules.outcome }}

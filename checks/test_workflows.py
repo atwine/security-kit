@@ -185,6 +185,8 @@ class Summaries(unittest.TestCase):
                 step = next((s for s in steps(block) if s.startswith("name: What each check found")), None)
                 self.assertIsNotNone(step, "no summary step")
                 self.assertIn("if: always()", step)
+                # The summary only reports; it must never fail the job.
+                self.assertIn("continue-on-error: true", step)
                 self.assertIn("GITHUB_STEP_SUMMARY", step)
 
 

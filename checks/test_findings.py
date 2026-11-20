@@ -264,6 +264,27 @@ class Summary(unittest.TestCase):
         self.assertNotIn("a|b", text)
         self.assertNotIn("\nd0", text)
 
+    def test_an_unreadable_report_is_not_called_a_finding(self):
+        text = findings.summary({"secrets": "failure"}, {"secrets": ["unreadable report: gitleaks.json"]})
+        self.assertIn("| Leaked secrets (gitleaks) | couldn't check 1 |", text)
+        self.assertNotIn("What to do:", text)
+
+    def test_a_skipped_check_does_not_point_to_a_log(self):
+        text = findings.summary({"pins": "skipped"}, {})
+        self.assertNotIn("step log", text)
+        self.assertIn("didn't run", text)
+
+    def test_a_very_long_item_is_shortened(self):
+        text = findings.summary({"access_rules": "failure"}, {"access_rules": ["x" * 5000]})
+        self.assertLess(len(text), 2000)
+
+    def test_a_broken_not_checked_list_never_stops_the_summary(self):
+        (self.folder / "not-checked.json").write_text('{"secrets": 5}', encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(findings.main(["summary", str(self.folder), "secrets=failure"]), 0)
+        self.assertIn("Leaked secrets (gitleaks)", out.getvalue())
+
     def test_the_command_reads_the_reports_folder(self):
         self.write("semgrep.json", {"results": [{"path": "app.py", "start": {"line": 3}, "check_id": "x.y.eval-detected"}], "errors": []})
         out = io.StringIO()
