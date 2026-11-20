@@ -51,5 +51,31 @@ class KitFirst(unittest.TestCase):
                     self.assertTrue(kit[0] < move < project[0], "the kit isn't moved out before the project is checked out")
 
 
+class ToolPins(unittest.TestCase):
+    """Group F: the kit's own tools are pinned by what the kit itself records."""
+
+    def scans(self):
+        return (WORKFLOWS / "scans.yml").read_text(encoding="utf-8")
+
+    def test_gitleaks_is_checked_against_a_checksum_the_kit_records(self):
+        text = self.scans()
+        self.assertNotIn("checksums.txt", text, "the checksum must not come from the same release as the download")
+        self.assertRegex(text, r"GITLEAKS_SHA256: [0-9a-f]{64}")
+
+    def test_pip_audit_installs_from_the_kit_s_hashed_lock_file(self):
+        text = self.scans()
+        self.assertIn("--require-hashes", text)
+        self.assertIn("checks/pip-audit-requirements.txt", text)
+        lock = (WORKFLOWS.parents[1] / "checks" / "pip-audit-requirements.txt").read_text(encoding="utf-8")
+        packages = [line for line in lock.splitlines() if line and not line.startswith((" ", "#"))]
+        self.assertTrue(any(line.startswith("pip-audit==") for line in packages))
+        for line in packages:
+            self.assertIn("\\", line, f"{line} has no --hash continuation")
+
+    def test_the_self_test_also_runs_every_week(self):
+        text = (WORKFLOWS / "self-test.yml").read_text(encoding="utf-8")
+        self.assertRegex(text, r"schedule:\s*\n\s*- cron:")
+
+
 if __name__ == "__main__":
     unittest.main()
