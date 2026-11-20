@@ -129,5 +129,23 @@ class EasySetup(unittest.TestCase):
         self.assertIn("security-report", section)
 
 
+class UpgradeCheck(unittest.TestCase):
+    """Any session asked to "check the kit upgrade" finds the steps in RELEASING.md."""
+
+    def section(self):
+        text = read("RELEASING.md")
+        self.assertIn("## Checking the kit upgrade", text)
+        return text.split("## Checking the kit upgrade", 1)[1].split("\n## ", 1)[0]
+
+    def test_it_names_the_phrase_and_the_pieces_to_check(self):
+        section = self.section()
+        self.assertIn('"check the kit upgrade"', section)
+        self.assertIn("git ls-remote --tags", section)
+        self.assertIn("security-report", section)
+
+    def test_it_says_what_to_do_when_the_upgrade_fails(self):
+        self.assertIn("don't tag", self.section().lower())
+
+
 if __name__ == "__main__":
     unittest.main()
