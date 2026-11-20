@@ -44,9 +44,9 @@ on:
         type: string
         default: "p/default"
       access-tests:
-        description: The project's access-rule tests, relative to working-directory; skipped when the file doesn't exist
+        description: The project's access-rule test files, relative to working-directory and separated by spaces. Leave empty to run every test file with "access" in its name next to each ACCESS.md
         type: string
-        default: "tests/test_access.py"
+        default: ""
       fail-on-findings:
         description: The kit's own self-test sets this to false to read results; for any other repository it is ignored and findings fail the check
         type: boolean
@@ -116,6 +116,7 @@ jobs:
           mv .security-kit "$RUNNER_TEMP/security-kit"
           mkdir -p "$RUNNER_TEMP/reports"
           chmod 777 "$RUNNER_TEMP/reports"
+          : > "$RUNNER_TEMP/no-gitleaksignore"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,8 +139,13 @@ jobs:
             exit 1
           fi
           python -I "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
-          git add -A -- "$WD"
+          git add -A
           git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
+
+      # The kit uses its own scanner settings. This lists the project's
+      # settings files it ignores and the inline skip comments it respects.
+      - name: Scanner settings in the project
+        run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" settings .
 
       - name: Install gitleaks (pinned, checksum-verified)
         env:
@@ -158,7 +164,10 @@ jobs:
       - id: secrets
         name: Leaked secrets in the history (gitleaks)
         continue-on-error: true
-        run: gitleaks git --redact --no-banner --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
+        run: |
+          gitleaks git --redact --no-banner \
+            --config "$RUNNER_TEMP/security-kit/checks/gitleaks.toml" --gitleaks-ignore-path "$RUNNER_TEMP/no-gitleaksignore" \
+            --report-format json --report-path "$RUNNER_TEMP/reports/gitleaks.json" .
 
       - id: risky_code
         name: Risky code patterns (Semgrep)
@@ -166,9 +175,17 @@ jobs:
         env:
           CONFIG: ${{ inputs.semgrep-config }}
         run: |
+          # A project's .semgrepignore files could hide code; the kit's own
+          # replaces them, and no file is skipped for its size.
+          find . -name .semgrepignore -not -path './.git/*' -delete
+          cp "$RUNNER_TEMP/security-kit/checks/semgrepignore" .semgrepignore
+          status=0
           docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP/reports:/reports" -w /src \
             semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1 \
-            semgrep scan --config "$CONFIG" --error --metrics off --quiet --json-output=/reports/semgrep.json "$WD"
+            semgrep scan --config "$CONFIG" --error --metrics off --quiet --max-target-bytes=0 \
+            --json-output=/reports/semgrep.json "$WD" || status=$?
+          python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" semgrep-errors "$RUNNER_TEMP/reports/semgrep.json" "$RUNNER_TEMP/reports" || status=1
+          exit $status
 
       - id: pins
         name: Libraries and actions pinned to exact versions
@@ -176,20 +193,17 @@ jobs:
         run: python -I "$RUNNER_TEMP/security-kit/checks/pins.py" "$WD" --report "$RUNNER_TEMP/reports/pins.json"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: hashFiles(format('{0}/package-lock.json', inputs.working-directory)) != ''
+        if: hashFiles(format('{0}/**/package-lock.json', inputs.working-directory), format('{0}/**/npm-shrinkwrap.json', inputs.working-directory)) != ''
         with:
           node-version: "22"
 
       - id: node_libraries
         name: JavaScript libraries with known holes (npm audit, high and critical)
         continue-on-error: true
-        run: |
-          if [ ! -f "$WD/package-lock.json" ]; then echo "No package-lock.json."; exit 0; fi
-          cd "$WD"
-          status=0
-          npm audit --audit-level=high --omit=dev --json > "$RUNNER_TEMP/reports/npm-audit.json" || status=$?
-          python -I "$RUNNER_TEMP/security-kit/checks/findings.py" show npm "$RUNNER_TEMP/reports/npm-audit.json"
-          exit $status
+        # Every npm lockfile under the folder, each audited from a clean copy
+        # against the public registry; other JavaScript lockfiles fail as not
+        # checked (checks/inventory.py).
+        run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" npm-audit "$WD" "$RUNNER_TEMP/reports"
 
       # In the kit's own repository only: list what each check's tool
       # reported, so the self-test can prove each catch is the defect it
@@ -263,40 +277,29 @@ jobs:
             exit 1
           fi
           python -I "$RUNNER_TEMP/security-kit/selftest/plant.py" "$DEFECT" "$WD"
-          git add -A -- "$WD"
+          git add -A
           git -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m "self-test: plant $DEFECT"
 
       - name: Install pip-audit (pinned)
         run: pip install --quiet pip-audit==2.10.1
 
+      # Requirements files and pyproject projects; Python manifests pip-audit
+      # can't read fail as not checked (checks/inventory.py).
       - id: python_libraries
         name: Python libraries with known holes (pip-audit)
         continue-on-error: true
-        run: |
-          files=$(git ls-files -- "$WD" | grep -E '(^|/)[^/]*requirements[^/]*\.txt$' || true)
-          if [ -z "$files" ]; then echo "No requirements files."; exit 0; fi
-          status=0
-          n=0
-          for f in $files; do
-            n=$((n + 1))
-            report="$RUNNER_TEMP/reports/pip-audit-$n.json"
-            echo "::group::$f"
-            pip-audit --progress-spinner off --format json --output "$report" -r "$f" || status=1
-            python -I "$RUNNER_TEMP/security-kit/checks/findings.py" show pip-audit "$report"
-            echo "::endgroup::"
-          done
-          exit $status
+        run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" pip-audit "$WD" "$RUNNER_TEMP/reports"
 
+      # The tests named in access-tests, or else every test file with
+      # "access" in its name next to each ACCESS.md, run from that folder. An
+      # ACCESS.md with no access tests fails as not checked.
       - id: access_rules
         name: Every route has an access rule (the project's access tests)
         continue-on-error: true
         env:
           TESTS: ${{ inputs.access-tests }}
-        run: |
-          cd "$WD"
-          if [ ! -f "$TESTS" ]; then echo "No access tests at $TESTS. The access-guard skill writes them."; exit 0; fi
-          if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
-          python -m pytest -q -p no:cacheprovider --junitxml "$RUNNER_TEMP/reports/access-tests.xml" "$TESTS"
+        # TESTS is split on spaces on purpose: one or more test files.
+        run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" access-tests "$WD" "$RUNNER_TEMP/reports" $TESTS
 
       - id: evidence
         name: What each check reported (kit's own repository only)

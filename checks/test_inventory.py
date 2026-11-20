@@ -25,18 +25,29 @@ class Node(unittest.TestCase):
         self.assertEqual(inventory.node(["package.json"]), {"audit": [], "not_checked": []})
 
 
+PROJECT = '[project]\nname = "w"\nversion = "1"\ndependencies = ["urllib3==1.26.4"]\n'
+TOOLS_ONLY = "[tool.ruff]\nline-length = 100\n"
+POETRY = '[tool.poetry.dependencies]\npython = "^3.12"\nrequests = "2.0"\n'
+
+
 class Python(unittest.TestCase):
     def test_requirements_files_and_pyproject_projects_are_audited(self):
         files = ["requirements.txt", "requirements/base.txt", "worker/pyproject.toml", "worker/app.py"]
-        found = inventory.python(files)
+        found = inventory.python(files, lambda path: PROJECT)
         self.assertEqual(found["requirements"], ["requirements.txt", "requirements/base.txt"])
         self.assertEqual(found["projects"], ["worker"])
 
-    def test_a_lockfile_with_nothing_pip_audit_reads_is_not_checked(self):
-        self.assertEqual(inventory.python(["svc/poetry.lock", "svc/main.py"])["not_checked"], ["svc/poetry.lock"])
+    def test_a_pyproject_with_only_tool_settings_is_not_a_project(self):
+        self.assertEqual(inventory.python(["pyproject.toml"], lambda path: TOOLS_ONLY), {"requirements": [], "projects": [], "not_checked": []})
 
-    def test_a_lockfile_next_to_pyproject_is_covered(self):
-        self.assertEqual(inventory.python(["svc/pyproject.toml", "svc/uv.lock"])["not_checked"], [])
+    def test_a_pyproject_pip_audit_cannot_read_is_not_checked(self):
+        self.assertEqual(inventory.python(["svc/pyproject.toml"], lambda path: POETRY)["not_checked"], ["svc/pyproject.toml"])
+
+    def test_a_lockfile_with_nothing_pip_audit_reads_is_not_checked(self):
+        self.assertEqual(inventory.python(["svc/poetry.lock", "svc/main.py"], lambda path: "")["not_checked"], ["svc/poetry.lock"])
+
+    def test_a_lockfile_next_to_a_project_is_covered(self):
+        self.assertEqual(inventory.python(["svc/pyproject.toml", "svc/uv.lock"], lambda path: PROJECT)["not_checked"], [])
 
 
 class Access(unittest.TestCase):
