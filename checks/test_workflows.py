@@ -87,14 +87,27 @@ CHECK_NAME = "Check the kit's files are this workflow's own commit"
 
 def steps(block: str) -> list[str]:
     """A job's steps, in order, each as its own text."""
-    return re.split(r"\n      - ", block.split("\n    steps:\n", 1)[1])[1:]
+    return re.split(r"\n      - ", "\n" + block.split("\n    steps:\n", 1)[1])[1:]
+
+
+def check_body(step: str) -> str:
+    lines = step.split("run: |\n", 1)[1].splitlines()
+    return "\n".join(line[10:] for line in lines if line.startswith("          ") or not line.strip()).strip()
+
+
+def kit_check_scripts() -> list[str]:
+    """The commit check's script from every job that has one."""
+    return [
+        check_body(step)
+        for name in ("scans.yml", "site-scan.yml")
+        for block in jobs((WORKFLOWS / name).read_text(encoding="utf-8")).values()
+        for step in steps(block)
+        if step.startswith(f"name: {CHECK_NAME}")
+    ]
 
 
 def kit_check_script() -> str:
-    block = jobs((WORKFLOWS / "scans.yml").read_text(encoding="utf-8"))["read"]
-    step = next(step for step in steps(block) if step.startswith(f"name: {CHECK_NAME}"))
-    lines = step.split("run: |\n", 1)[1].splitlines()
-    return "\n".join(line[10:] for line in lines if line.startswith("          ") or not line.strip())
+    return kit_check_scripts()[0]
 
 
 def bash() -> str | None:
@@ -129,6 +142,13 @@ class KitCommit(unittest.TestCase):
                         self.assertIn(f"KIT_DIR: {path}\n", check)
                         self.assertIn("WANT_SHA: ${{ job.workflow_sha }}", check)
                         self.assertIn("WANT_REPO: ${{ job.workflow_repository }}", check)
+
+    def test_every_job_runs_the_same_check(self):
+        # The check can't live in a kit script, because the kit's files are what
+        # it checks. So each job carries a copy, and the copies must not drift.
+        scripts = kit_check_scripts()
+        self.assertEqual(len(scripts), 4)
+        self.assertEqual(len(set(scripts)), 1, "the jobs' copies of the commit check differ")
 
     def test_the_check_passes_only_the_workflow_s_own_commit(self):
         shell = bash()
