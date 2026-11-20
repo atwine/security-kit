@@ -184,9 +184,10 @@ def semgrepignore(app: Path) -> None:
 
 def npmrc_registry(app: Path) -> None:
     # A vulnerable lockfile, plus a project .npmrc that sends npm audit to a
-    # registry that isn't there.
+    # registry that isn't there. (min-release-age keeps Semgrep's .npmrc rule
+    # quiet, so only npm audit is tested.)
     node_library(app)
-    (app / ".npmrc").write_text("registry=http://127.0.0.1:9/\n", encoding="utf-8")
+    (app / ".npmrc").write_text("registry=http://127.0.0.1:9/\nmin-release-age = 7\n", encoding="utf-8")
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
