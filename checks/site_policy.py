@@ -99,7 +99,7 @@ def accepted(rules: str) -> set[str]:
     """Kit check ids a rules file marks IGNORE, in its tab format with a reason: KIT-ID<tab>IGNORE<tab>(reason)."""
     ids = set()
     for line in rules.splitlines():
-        parts = line.split("	")
+        parts = line.split("\t")
         if len(parts) >= 3 and parts[0].startswith("KIT-") and parts[1] == "IGNORE" and re.fullmatch(r"\(.*\S.*\)", parts[2].strip()):
             ids.add(parts[0])
     return ids
