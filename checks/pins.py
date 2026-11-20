@@ -31,32 +31,43 @@ import argparse
 import json
 import posixpath
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
-# Folders that never hold the project's own dependency files. Virtual
-# environments are recognised by their pyvenv.cfg instead of by name, so a
-# project folder that happens to be called env or venv is still checked.
+# Folders that never hold the project's own dependency files. A virtual
+# environment is recognised by an untracked pyvenv.cfg, so a pyvenv.cfg
+# committed to the repository can't hide a folder.
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "site-packages"}
 EXACT_PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?\s*===?\s*[0-9][0-9A-Za-z.!+_-]*\s*(;.*)?$")
-COMMIT = re.compile(r"@[0-9a-f]{40}$")
-ARCHIVE_HASH = re.compile(r"#(sha256|sha384|sha512)=[0-9a-fA-F]+")
-DIRECT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\[\],-]*\s*@\s*(\S+)")
+FULL_SHA = re.compile(r"@[0-9a-f]{40}$")
+DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
+FRAGMENT_HASH = re.compile(r"(^|&)(sha256|sha384|sha512)=[0-9a-fA-F]+")
+SCHEME_OR_VCS = re.compile(r"^([a-z][a-z0-9+.-]*://|(git|hg|svn|bzr)\+)", re.I)
+VCS = re.compile(r"^(git|hg|svn|bzr)\+", re.I)
+DIRECT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\[\],-]*\s*@\s*(\S+)$")
 COMMENT = re.compile(r"(^|\s+)#.*$")
 INCLUDES = {"-r", "--requirement", "-c", "--constraint"}
 EDITABLE = {"-e", "--editable"}
 SECOND_SOURCES = {"--extra-index-url", "--extra-index", "--find-links", "-f"}
 REPLACEMENT_SOURCES = {"--index-url", "-i"}
-HARMLESS = {"--prefer-binary", "--only-binary", "--no-binary", "--require-hashes", "--pre", "--no-index"}
+TRUSTED_HOST = {"--trusted-host"}
+FLAGS = {"--prefer-binary", "--require-hashes", "--pre", "--no-index"}
+WITH_VALUE = {"--only-binary", "--no-binary", "--hash", "--config-settings", "--global-option", "--use-feature"}
+TAKES_VALUE = INCLUDES | EDITABLE | SECOND_SOURCES | REPLACEMENT_SOURCES | TRUSTED_HOST | WITH_VALUE
 LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb")
-USES = re.compile(r"\buses\s*:\s*['\"]?([^'\"\s#,}]+)")
-IMAGE = re.compile(r"^\s*(?:-\s*)?(?:image|container)\s*:\s*['\"]?([^'\"\s#{}]+)")
-FULL_SHA = re.compile(r"@[0-9a-f]{40}$")
-DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
+USES = re.compile(r"\buses\s*:\s*['\"]?([^'\"\s#,}]*)")
+IMAGE = re.compile(r"\b(?:image|container)\s*:\s*['\"]?([^'\"\s#{},]+)")
+REV = re.compile(r"['\"]?\brev\b['\"]?\s*:\s*['\"]?([^'\"\s,}#]+)")
 
 
 def is_virtualenv(folder: Path) -> bool:
-    return (folder / "pyvenv.cfg").is_file()
+    marker = folder / "pyvenv.cfg"
+    if not marker.is_file():
+        return False
+    tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", str(marker)], capture_output=True)
+    return tracked.returncode != 0
 
 
 def files(root: Path, pattern: str):
@@ -71,9 +82,9 @@ def files(root: Path, pattern: str):
 
 
 def pip_lines(text: str) -> list[tuple[int, str]]:
-    """Requirement lines as pip reads them: (first line number, text without comments)."""
+    """Requirement lines exactly as pip reads them: (first line number, text without comments)."""
     joined, buffer, start = [], [], 0
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(text.lstrip("﻿").splitlines(), start=1):
         is_comment = COMMENT.match(line) is not None
         if not line.endswith("\\") or is_comment:
             if is_comment:
@@ -87,7 +98,7 @@ def pip_lines(text: str) -> list[tuple[int, str]]:
         else:
             if not buffer:
                 start = number
-            buffer.append(line[:-1])
+            buffer.append(line.strip("\\"))  # pip strips backslashes from both ends
     if buffer:
         joined.append((start, "".join(buffer)))
     lines = []
@@ -98,127 +109,234 @@ def pip_lines(text: str) -> list[tuple[int, str]]:
     return lines
 
 
-def _option(tokens: list[str]) -> tuple[str, str]:
-    first = tokens[0]
-    if first.startswith("--") and "=" in first:
-        name, value = first.split("=", 1)
-        return name, value
-    return first, tokens[1] if len(tokens) > 1 else ""
+def _split(line: str) -> tuple[str, str]:
+    """pip's split: words before the first one starting with '-', then the options."""
+    tokens = line.split(" ")
+    for index, token in enumerate(tokens):
+        if token.startswith("-"):
+            return " ".join(tokens[:index]).strip(), " ".join(tokens[index:])
+    return line.strip(), ""
+
+
+def _options(text: str) -> list[tuple[str, str]]:
+    """(option, value) pairs, read the way pip's option parser reads them."""
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        return [("(unreadable options)", text)]
+    found, index = [], 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith("--") and "=" in token:
+            name, value = token.split("=", 1)
+            index += 1
+        elif token in TAKES_VALUE:
+            name, value = token, tokens[index + 1] if index + 1 < len(tokens) else ""
+            index += 2
+        elif len(token) > 2 and not token.startswith("--") and token[:2] in TAKES_VALUE:
+            name, value = token[:2], token[2:]
+            index += 1
+        else:
+            name, value = token, ""
+            index += 1
+        found.append((name, value))
+    return found
 
 
 def _url_problem(url: str, hashed: bool) -> str:
     """Why a direct or editable URL isn't pinned, or '' when it is."""
-    if re.match(r"^(git|hg|svn|bzr)\+", url):
-        return "" if COMMIT.search(url.split("#", 1)[0]) else "a version-control install not pinned to a full commit hash"
-    if ARCHIVE_HASH.search(url) or hashed:
+    if VCS.match(url):
+        return "" if FULL_SHA.search(url.split("#", 1)[0]) else "a version-control install not pinned to a full commit hash"
+    if FRAGMENT_HASH.search(url.partition("#")[2]) or hashed:
         return ""
     return "a download without its hash (add #sha256=... or --hash)"
 
 
-def requirement_problems(path: str, read, seen=None) -> tuple[list[str], list[str]]:
-    """(findings, notes) for one requirements file and every file it pulls in."""
-    seen = set() if seen is None else seen
-    if path in seen:
-        return [], []
-    seen.add(path)
+def _walk(path: str, read, state: dict, where: str = "") -> None:
+    if path in state["seen"]:
+        return
+    state["seen"].add(path)
     try:
         text = read(path)
-    except (FileNotFoundError, IsADirectoryError):
-        return [f"{path}: doesn't exist, so it couldn't be checked"], []
-    findings, notes, second_sources, unhashed = [], [], [], []
+    except OSError:
+        state["findings"].append(f"{where or path}: {'includes ' + path + ', which' if where else 'it'} doesn't exist or can't be read")
+        return
     for number, line in pip_lines(text):
-        tokens = line.split()
-        where = f"{path}:{number}"
-        if tokens[0].startswith("-") and not tokens[0].startswith("--hash"):
-            option, value = _option(tokens)
-            if option in INCLUDES:
-                target = posixpath.normpath(posixpath.join(posixpath.dirname(path), value))
-                more, extra = requirement_problems(target, read, seen)
-                if more == [f"{target}: doesn't exist, so it couldn't be checked"]:
-                    more = [f"{where}: includes {value}, which doesn't exist"]
-                findings += more
-                notes += extra
-            elif option in EDITABLE:
-                local = not re.search(r"^[a-z][a-z0-9+.-]*://|^(git|hg|svn|bzr)\+", value)
-                problem = "" if local else _url_problem(value, False)
+        here = f"{path}:{number}"
+        requirement, option_text = _split(line)
+        options = _options(option_text)
+        hashed = any(name == "--hash" for name, _ in options)
+        for name, value in options:
+            if name in INCLUDES:
+                if SCHEME_OR_VCS.match(value):
+                    state["findings"].append(f"{here}: pulls in {value} from a URL, which can change at any time")
+                else:
+                    _walk(posixpath.normpath(posixpath.join(posixpath.dirname(path), value)), read, state, here)
+            elif name in EDITABLE:
+                problem = _url_problem(value, False) if SCHEME_OR_VCS.match(value) else ""
                 if problem:
-                    findings.append(f"{where}: `{line}` is {problem}")
-            elif option in SECOND_SOURCES:
-                second_sources.append(where)
-            elif option in REPLACEMENT_SOURCES:
-                notes.append(f"{where}: installs from {value} instead of PyPI")
-            elif option not in HARMLESS:
-                findings.append(f"{where}: `{option}` is a requirements option the pin check doesn't know, so it can't tell whether the pins hold")
+                    state["findings"].append(f"{here}: `-e {value}` is {problem}")
+            elif name in SECOND_SOURCES:
+                state["second_sources"].append(here)
+            elif name in REPLACEMENT_SOURCES:
+                state["notes"].append(f"{here}: installs from {value} instead of PyPI")
+            elif name in TRUSTED_HOST:
+                state["findings"].append(f"{here}: --trusted-host {value} turns off certificate checks for that host")
+            elif name not in FLAGS and name not in WITH_VALUE:
+                state["findings"].append(f"{here}: `{name}` is a requirements option the pin check doesn't know, so it can't tell whether the pins hold")
+        if not requirement:
             continue
-        hashed = any(token.startswith("--hash") for token in tokens)
-        requirement = line.split(" --hash", 1)[0].strip()
-        direct = DIRECT.match(requirement)
-        url = direct.group(1) if direct else (requirement if re.search(r"://|^(git|hg|svn|bzr)\+", requirement) else "")
-        if url:
+        if not re.match(r"^[A-Za-z0-9./]", requirement):
+            state["findings"].append(f"{here}: `{requirement}` isn't a requirement the pin check can read")
+            continue
+        named = requirement.split(";", 1)[0].strip()
+        if named.startswith((".", "/")):
+            pass  # the project itself, or a local folder or wheel
+        elif SCHEME_OR_VCS.match(named) or DIRECT.match(named):
+            url = named if SCHEME_OR_VCS.match(named) else DIRECT.match(named).group(1)
             problem = _url_problem(url, hashed)
             if problem:
-                findings.append(f"{where}: `{requirement}` is {problem}")
-        elif not EXACT_PIN.match(requirement):
-            findings.append(f"{where}: `{requirement}` isn't pinned to one exact version (use == and a version)")
+                state["findings"].append(f"{here}: `{named}` is {problem}")
+        elif not EXACT_PIN.match(named):
+            state["findings"].append(f"{here}: `{named}` isn't pinned to one exact version (use == and a version)")
         if not hashed:
-            unhashed.append(where)
-    if second_sources and unhashed:
-        findings += [f"{where}: a second package source without hash pins on every requirement; a same-named package there can win" for where in second_sources]
-    return findings, notes
+            state["unhashed"].append(here)
+
+
+def requirement_problems(path: str, read, seen=None) -> tuple[list[str], list[str]]:
+    """(findings, notes) for one requirements file and every file it pulls in.
+
+    A second package source anywhere in the files pip reads together applies
+    to all of them, so the hash rule is checked across the whole set.
+    """
+    state = {"seen": set() if seen is None else seen, "findings": [], "notes": [], "second_sources": [], "unhashed": []}
+    _walk(path, read, state)
+    if state["second_sources"] and state["unhashed"]:
+        state["findings"] += [
+            f"{where}: a second package source while some requirements read with it have no hash pins; a same-named package there can win"
+            for where in state["second_sources"]
+        ]
+    return state["findings"], state["notes"]
 
 
 def workflow_problems(path: str, text: str) -> list[str]:
-    findings = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        if raw.lstrip().startswith("#"):
+    findings, lines = [], text.splitlines()
+    inside_with = None  # indentation of the `with:` key while reading its block
+    for index, raw in enumerate(lines):
+        number = index + 1
+        if raw.lstrip().startswith("#") or not raw.strip():
             continue
         line = re.sub(r"\s+#.*$", "", raw)
+        indent = len(line) - len(line.lstrip(" -"))
+        if inside_with is not None and indent <= inside_with:
+            inside_with = None
         for match in USES.finditer(line):
             target = match.group(1)
-            if target.startswith("./") or target.startswith("$"):
+            if target in ("", ">", ">-", "|", "|-"):
+                following = [l.strip() for l in lines[index + 1 :] if l.strip()]
+                target = following[0].strip("'\"") if following else ""
+            if not target or target.startswith(("./", "$")):
                 continue
             if target.startswith("docker://"):
                 if not DIGEST.search(target):
                     findings.append(f"{path}:{number}: `{target}` isn't pinned to an image digest (@sha256:...)")
             elif not FULL_SHA.search(target):
                 findings.append(f"{path}:{number}: `{target}` isn't pinned to a full commit SHA; tags can be moved")
-        image = IMAGE.match(line)
-        if image and not image.group(1).startswith("$") and not DIGEST.search(image.group(1)):
-            findings.append(f"{path}:{number}: image `{image.group(1)}` isn't pinned to a digest (@sha256:...); tags can be moved")
+        if inside_with is None:
+            for image in IMAGE.finditer(line):
+                value = image.group(1)
+                if value.startswith(("$", "./")) or value.endswith("Dockerfile"):
+                    continue
+                if not DIGEST.search(value):
+                    findings.append(f"{path}:{number}: image `{value.removeprefix('docker://')}` isn't pinned to a digest (@sha256:...); tags can be moved")
+        if re.match(r"^\s*(?:-\s*)?with\s*:\s*$", line):
+            inside_with = len(line) - len(line.lstrip(" -"))
     return findings
 
 
+def _expand(value: str, variables: dict) -> str | None:
+    """A Dockerfile value with ${NAME} and $NAME filled from ARG defaults, or None when it can't be."""
+    unresolved = False
+
+    def fill(match):
+        nonlocal unresolved
+        name = match.group(1) or match.group(2)
+        if name not in variables:
+            unresolved = True
+            return ""
+        return variables[name]
+
+    if re.search(r"\$\{[^}]*[:?+-][^}]*\}", value):
+        return None  # ${NAME:-default} and friends depend on what's passed in
+    result = re.sub(r"\$\{(\w+)\}|\$(\w+)", fill, value)
+    return None if unresolved else result
+
+
 def dockerfile_problems(path: str, text: str) -> list[str]:
-    findings, stages = [], set()
+    findings, stages, variables = [], set(), {}
+    logical, buffer, start = [], "", 0
     for number, line in enumerate(text.splitlines(), start=1):
+        if not buffer:
+            start = number
+        if line.rstrip().endswith("\\"):
+            buffer += line.rstrip()[:-1] + " "
+            continue
+        logical.append((start, buffer + line))
+        buffer = ""
+    if buffer:
+        logical.append((start, buffer))
+
+    def reference(where: int, value: str, what: str) -> None:
+        if value.lower() in stages or value.isdigit():
+            return
+        resolved = _expand(value, variables)
+        if resolved is None:
+            findings.append(f"{path}:{where}: {what} `{value}` comes from a build variable, so the check can't tell it's pinned")
+        elif resolved != "scratch" and resolved.lower() not in stages and not DIGEST.search(resolved):
+            findings.append(f"{path}:{where}: {what} `{resolved}` isn't pinned to a digest (@sha256:...)")
+
+    for number, line in logical:
         parts = line.split()
-        if not parts or parts[0].upper() != "FROM":
+        if not parts:
             continue
-        words = [part for part in parts[1:] if not part.startswith("--")]
-        if not words:
-            continue
-        image = words[0]
-        if image != "scratch" and image.lower() not in stages and not DIGEST.search(image):
-            findings.append(f"{path}:{number}: base image `{image}` isn't pinned to a digest (@sha256:...)")
-        if len(words) >= 3 and words[1].upper() == "AS":
-            stages.add(words[2].lower())
+        instruction = parts[0].upper()
+        if instruction == "ARG":
+            for part in parts[1:]:
+                if "=" in part:
+                    name, value = part.split("=", 1)
+                    variables[name] = value.strip("'\"")
+        elif instruction == "FROM":
+            words = [part for part in parts[1:] if not part.startswith("--")]
+            if words:
+                reference(number, words[0], "base image")
+                if len(words) >= 3 and words[1].upper() == "AS":
+                    stages.add(words[2].lower())
+        elif instruction in ("COPY", "ADD"):
+            for part in parts[1:]:
+                if part.startswith("--from="):
+                    reference(number, part[len("--from="):], "image copied from")
+        elif instruction == "RUN":
+            for part in parts[1:]:
+                if part.startswith("--mount="):
+                    for setting in part[len("--mount="):].split(","):
+                        if setting.startswith("from="):
+                            reference(number, setting[len("from="):], "image mounted from")
     return findings
 
 
 def precommit_problems(path: str, text: str) -> list[str]:
-    findings, repo = [], ""
+    findings = []
     for number, line in enumerate(text.splitlines(), start=1):
-        named = re.match(r"^\s*-?\s*repo\s*:\s*['\"]?([^'\"\s#]+)", line)
-        if named:
-            repo = named.group(1)
-        rev = re.match(r"^\s*rev\s*:\s*['\"]?([^'\"\s#]+)", line)
-        if rev and repo not in ("local", "meta") and not re.fullmatch(r"[0-9a-f]{40}", rev.group(1)):
-            findings.append(f"{path}:{number}: hook `{repo}` is pinned to `{rev.group(1)}`, which can be moved; use the commit (pre-commit autoupdate --freeze)")
+        if line.lstrip().startswith("#"):
+            continue
+        for match in REV.finditer(line):
+            if not re.fullmatch(r"[0-9a-f]{40}", match.group(1)):
+                findings.append(f"{path}:{number}: a hook is pinned to `{match.group(1)}`, which can be moved; use the commit (pre-commit autoupdate --freeze)")
     return findings
 
 
 def _read(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8", errors="replace")
+    return Path(path).read_text(encoding="utf-8-sig", errors="replace")
 
 
 def _posix(path: Path) -> str:

