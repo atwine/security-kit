@@ -285,6 +285,20 @@ jobs:
               print("ZAP reported nothing.")
           EOF
 
+      - name: What each check found
+        if: always()
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_CONFIG /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
+        env:
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+          ZAP_DIR: ${{ runner.temp }}/zap
+          KIT: ${{ runner.temp }}/security-kit
+          SITE_HEADERS: ${{ steps.site_headers.outcome }}
+          SITE_POLICY: ${{ steps.site_policy.outcome }}
+        run: |
+          /usr/bin/python3 -I "$KIT/checks/findings.py" summary-site "$ZAP_DIR"             "site_headers=$SITE_HEADERS" "site_policy=$SITE_POLICY" | /usr/bin/tee -a "$GITHUB_STEP_SUMMARY"
+
       # In the kit's own repository only: list the failing rules ZAP
       # reported, so the self-test can prove the catch is the defect it
       # planted. Every other repository skips this, and the verdict below

@@ -3,6 +3,8 @@
     python findings.py evidence-code <reports folder> [check ...]   # one line of JSON: check -> findings
     python findings.py evidence-site <ZAP folder>       # the same for the website scan
     python findings.py show npm|pip-audit <report>      # a short list for people
+    python findings.py summary <reports folder> check=outcome ...       # Markdown for the run's summary page
+    python findings.py summary-site <ZAP folder> check=outcome ...      # the same for the website scan
 
 The evidence commands run only in the kit's own repository. Its self-test
 uses them to prove each check caught the defect it planted, not something
@@ -197,6 +199,76 @@ def site_evidence(folder: Path) -> dict[str, list[str]]:
     }
 
 
+# What each check is called on the summary page, and what to do when it finds something.
+CHECK_TEXT = {
+    "secrets": ("Leaked secrets (gitleaks)",
+                "remove the secret from the code, then make a new one and stop using the old one: it stays in the git history."),
+    "risky_code": ("Risky code patterns (Semgrep)",
+                   "open each line and fix the pattern. If it is safe, add a `nosemgrep` comment saying why."),
+    "pins": ("Pinned versions",
+             "pin each item to one exact version: `==` for a library, a full commit for an action, a digest for an image."),
+    "node_libraries": ("JavaScript libraries (npm audit)",
+                       "update each package to a version with the fix (`npm audit fix`, or raise it in package.json)."),
+    "python_libraries": ("Python libraries (pip-audit)",
+                         "update each library to a version with the fix, in requirements.txt or pyproject.toml."),
+    "access_rules": ("Access rules (the project's access tests)",
+                     "fix the failing access tests or the route they caught. A route with no rule needs a test (the access-guard skill writes one)."),
+    "site_headers": ("Website safety headers (ZAP)",
+                     "add the missing headers; templates/headers in the kit has safe defaults."),
+    "site_policy": ("Website rules (HTTPS, cookies, CORS)",
+                    "fix each item: Strict-Transport-Security, Referrer-Policy, Permissions-Policy, cookie flags and CORS."),
+}
+NOT_CHECKED = "not checked: "
+SHOWN = 20
+
+
+def _cell(text: str) -> str:
+    """Text from a report, made safe for one Markdown table cell or list item."""
+    return " ".join(str(text).split()).replace("`", "'").replace("|", "/")
+
+
+def _result(outcome: str, found: list[str], skipped: list[str]) -> str:
+    if outcome == "success":
+        return "passed"
+    if outcome == "failure":
+        parts = ([f"found {len(found)}"] if found else []) + ([f"couldn't check {len(skipped)}"] if skipped else [])
+        return ", ".join(parts) or "failed"
+    return f"didn't run ({outcome})" if outcome else "didn't run"
+
+
+def summary(outcomes: dict[str, str], evidence: dict[str, list[str]]) -> str:
+    """Markdown for the run's summary page: a table of every check, then what each one that isn't clean found."""
+    table = ["| Check | Result |", "|---|---|"]
+    details = []
+    for check, outcome in outcomes.items():
+        title, advice = CHECK_TEXT.get(check, (check, "see this check's step log."))
+        items = evidence.get(check, [])
+        found = [item for item in items if not item.startswith(NOT_CHECKED)]
+        skipped = [item[len(NOT_CHECKED):] for item in items if item.startswith(NOT_CHECKED)]
+        result = _result(outcome, found, skipped)
+        table.append(f"| {title} | {result} |")
+        if result == "passed":
+            continue
+        lines = [f"**{title}: {result}.**", ""]
+        if found:
+            lines.append(f"What to do: {advice}")
+        if skipped:
+            lines.append("Couldn't check these, so the check fails until they can be checked or are removed:")
+        if not found and not skipped:
+            lines.append("No details in its report. Open this check's step log.")
+        lines.append("")
+        shown = [f"- `{_cell(item)}`" for item in found + skipped]
+        lines += shown[:SHOWN]
+        if len(shown) > SHOWN:
+            lines.append(f"- and {len(shown) - SHOWN} more (see the step log)")
+        details.append("\n".join(lines))
+    return "\n\n".join(["\n".join(table)] + details) + "\n"
+
+
+def _outcomes(pairs: list[str]) -> dict[str, str]:
+    return dict(pair.split("=", 1) for pair in pairs)
+
+
 def _plural(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
@@ -265,10 +337,18 @@ def main(argv: list[str]) -> int:
         if isinstance(report, dict) and report.get("@version"):
             evidence["_versions"] = {"zap": str(report["@version"])}
         print(json.dumps(evidence))
+    elif len(argv) >= 3 and argv[0] in ("summary", "summary-site") and all("=" in pair for pair in argv[2:]):
+        outcomes = _outcomes(argv[2:])
+        folder = Path(argv[1])
+        if argv[0] == "summary":
+            evidence = code_evidence(folder, [check for check in outcomes if check in CODE_READERS])
+        else:
+            evidence = site_evidence(folder)
+        print(summary(outcomes, evidence))
     elif len(argv) == 3 and argv[0] == "show":
         show(argv[1], Path(argv[2]))
     else:
-        print("\n".join(__doc__.strip().splitlines()[2:5]), file=sys.stderr)
+        print("\n".join(__doc__.strip().splitlines()[2:7]), file=sys.stderr)
         return 2
     return 0
 
