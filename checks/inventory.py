@@ -247,7 +247,7 @@ def run_npm(wd: str, reports: Path) -> int:
         status |= code != 0
     if not found["audit"] and not found["not_checked"]:
         print("No npm lockfiles.")
-    return status | _not_checked(reports, "node_libraries", found["not_checked"], "npm audit can't read this lockfile")
+    return status | _not_checked(reports, "node_libraries", found["not_checked"], "npm audit reads only package-lock.json and npm-shrinkwrap.json; delete this lockfile if the project doesn't use it")
 
 
 def run_pip_audit(wd: str, reports: Path) -> int:
