@@ -85,9 +85,11 @@ kit release through Dependabot. Use a throwaway project that calls the kit
 
 1. **Find the upgrade pull request.** In the test project, list
    Dependabot's open pull requests and find the one that changes the kit's
-   `uses: atwine/security-kit/...@<sha>` lines. Dependabot opens it after
-   the project's cooldown (7 days in the kit's template), counted from the
-   release's tag. None yet means the cooldown hasn't passed: wait.
+   `uses: atwine/security-kit/...@<sha>` lines. Dependabot waits a set
+   number of days after a release before offering it (the cooldown: 7 days
+   in the kit's template), and opens the pull request into the branch its
+   `target-branch` names (for example `development`). None yet means the
+   cooldown hasn't passed: wait.
 2. **Check it points at the release.** The new commit must be the tag's
    commit, and the version comment next to it must name that tag:
 
@@ -95,7 +97,8 @@ kit release through Dependabot. Use a throwaway project that calls the kit
    git ls-remote --tags https://github.com/atwine/security-kit
    ```
 
-   The line ending in `^{}` for the tag gives its commit.
+   For the kit's tags (annotated), the line ending in `^{}` gives the
+   commit; a tag without that line points at its commit directly.
 3. **Check its run.** Both checks that decide pass or fail must run on the
    pull request. Read the result with the `security-report` skill (or the
    run's summary page): the score, the checklist line and the results
@@ -103,7 +106,7 @@ kit release through Dependabot. Use a throwaway project that calls the kit
    fine when it is a real finding the new release now catches; say which.
 4. **Check what the project must change.** Read the release's
    `CHANGELOG.md` entry. If the release adds something the project's own
-   workflow must call (as v1.0.0 adds the `score` job), make that change in
+   workflow must call (as the release after v0.1.0 adds the `score` job), make that change in
    the same pull request, or note it for the owner.
 5. **Decide.** If the upgrade works, merge the pull request (in a throwaway
    project) or leave it for the owner, and go on with the release steps
