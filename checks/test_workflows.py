@@ -175,5 +175,18 @@ class KitCommit(unittest.TestCase):
             self.assertNotEqual(outcome("owner/kit", ""), 0, "an empty commit passed")
 
 
+class Summaries(unittest.TestCase):
+    """Step 1 of the reporting plan: each checks job writes what each check found to the run's summary."""
+
+    def test_every_checks_job_writes_its_summary_even_after_a_failure(self):
+        for name, job in (("scans.yml", "read"), ("scans.yml", "run"), ("site-scan.yml", "scan")):
+            with self.subTest(workflow=name, job=job):
+                block = jobs((WORKFLOWS / name).read_text(encoding="utf-8"))[job]
+                step = next((s for s in steps(block) if s.startswith("name: What each check found")), None)
+                self.assertIsNotNone(step, "no summary step")
+                self.assertIn("if: always()", step)
+                self.assertIn("GITHUB_STEP_SUMMARY", step)
+
+
 if __name__ == "__main__":
     unittest.main()
