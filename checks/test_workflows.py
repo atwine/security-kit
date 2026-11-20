@@ -99,7 +99,7 @@ def kit_check_scripts() -> list[str]:
     """The commit check's script from every job that has one."""
     return [
         check_body(step)
-        for name in ("scans.yml", "site-scan.yml")
+        for name in ("scans.yml", "site-scan.yml", "score.yml")
         for block in jobs((WORKFLOWS / name).read_text(encoding="utf-8")).values()
         for step in steps(block)
         if step.startswith(f"name: {CHECK_NAME}")
@@ -128,7 +128,7 @@ class KitCommit(unittest.TestCase):
     """F6: every job checks that the kit files it fetched are the workflow's own commit."""
 
     def test_every_kit_fetch_is_followed_by_the_commit_check(self):
-        for name in ("scans.yml", "site-scan.yml"):
+        for name in ("scans.yml", "site-scan.yml", "score.yml"):
             for job, block in jobs((WORKFLOWS / name).read_text(encoding="utf-8")).items():
                 listed = steps(block)
                 for index, step in enumerate(listed):
@@ -147,7 +147,7 @@ class KitCommit(unittest.TestCase):
         # The check can't live in a kit script, because the kit's files are what
         # it checks. So each job carries a copy, and the copies must not drift.
         scripts = kit_check_scripts()
-        self.assertEqual(len(scripts), 4)
+        self.assertEqual(len(scripts), 5)
         self.assertEqual(len(set(scripts)), 1, "the jobs' copies of the commit check differ")
 
     def test_the_check_passes_only_the_workflow_s_own_commit(self):
@@ -173,6 +173,19 @@ class KitCommit(unittest.TestCase):
             self.assertNotEqual(outcome("owner/project", sha), 0, "another repository passed")
             self.assertNotEqual(outcome("", sha), 0, "an empty repository name passed")
             self.assertNotEqual(outcome("owner/kit", ""), 0, "an empty commit passed")
+
+
+class ScoreJob(unittest.TestCase):
+    """Step 2 of the reporting plan: one combined score per project run."""
+
+    def test_the_template_scores_every_run_from_both_parts(self):
+        text = (WORKFLOWS.parents[1] / "templates" / "security.yml").read_text(encoding="utf-8")
+        block = jobs(text)["score"]
+        self.assertIn("needs: [code, website]", block)
+        self.assertIn("if: always()", block)
+        self.assertIn("atwine/security-kit/.github/workflows/score.yml@KIT_SHA", block)
+        self.assertIn("needs.code.outputs.results", block)
+        self.assertIn("needs.website.outputs.results", block)
 
 
 class Summaries(unittest.TestCase):
