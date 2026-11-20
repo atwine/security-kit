@@ -297,8 +297,9 @@ def advisories(get: Getter, sources: dict, today: dt.date, window_days: int) -> 
                     f"**{ghsa}** ({', '.join(names) or 'package not named'}), published "
                     f"{quoted(str(advisory.get('published_at', ''))[:10], 10)}: "
                     f"{quoted(advisory.get('summary', ''))}. Decide whether the kit should change "
-                    "(a check, a template default or a checklist item); each project's own Dependabot and "
-                    "audits already flag the library itself."
+                    "(a check, a template default or a checklist item). A project's own library checks "
+                    "flag it only where its lockfile or requirements list it: not when a framework bundles a copy, "
+                    "and not in development-only JavaScript libraries."
                 ),
                 links=(f"https://github.com/advisories/{ghsa}",),
             )

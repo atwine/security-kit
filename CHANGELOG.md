@@ -165,6 +165,26 @@
   - Each issue is locked when opened and tells the drafting session to use
     only the watcher's text.
   - The weekly self-test fails when the watcher hasn't succeeded in 40 days.
+- Docs and release prep (review group I):
+  - The kit has its own `SECURITY.md`; reports go through GitHub's private
+    reporting form.
+  - Checklist claims now match the checks: SK-02 says npm audit fails on
+    high and critical holes in shipped libraries, SK-11 says the access
+    tests decide route coverage and that a project without `ACCESS.md`
+    passes, and SK-52 says the release gate stops only Claude's own pull
+    requests.
+  - The Next.js guide warns not to switch off ZAP rule 10038 during the
+    warn-only Content-Security-Policy step.
+  - `RELEASING.md` says how to review a change Claude drafts from a
+    kit-update issue.
+  - gitleaks prints each leak's file and line (`-v`, secrets still
+    redacted). Downloads use `curl --proto =https`, and file arguments
+    follow `--`.
+  - The watcher no longer tracks Vercel, and its LLM list label says it
+    follows GitHub release tags, which can be a year behind the list's name
+    (the 2025 list is tagged 2024).
+  - `spike-hello.yml`, the phase 1 test workflow, is removed. Releases
+    v0.0.1 and v0.0.2 still point at it by commit.
 
 ## v0.1.0 (2026-11-19), test release
 

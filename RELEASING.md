@@ -32,6 +32,15 @@ the kit records it:
 
 Each change is a pull request. Merge it once its checks pass.
 
+When Claude drafts the changes for a kit-update issue, review the draft
+like any other pull request before merging:
+- the self-test passes, so every planted defect is still caught;
+- a code review and a security review ran on the diff, and their findings
+  are fixed or answered in the pull request;
+- every new version, checksum or image digest matches what its source link
+  shows, checked by you, not copied from the issue;
+- the draft changes only what the issue's ticked items asked for.
+
 ## Releasing
 
 1. Merge the pull requests that belong in the release.

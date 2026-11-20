@@ -28,7 +28,7 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-01 | No secrets (keys, tokens, passwords) in the code or its git history; a secret check runs before every commit | AUTO `secrets` · pre-commit gitleaks | ASVS V13, A02 |
-| SK-02 | No libraries with published security holes. Audits can't see a copy a framework bundles inside itself (Next.js bundles React's server code), so also follow the framework's own advisories and update it when it ships a fixed copy | AUTO `python_libraries`, `node_libraries` · EVIDENCE the framework's advisories followed | A03, ASVS V15 |
+| SK-02 | No libraries with published security holes. The kit's audits fail on any known hole in a Python library, and on high or critical holes in JavaScript libraries the app ships (not development-only ones); review the rest. Audits can't see a copy a framework bundles inside itself (Next.js bundles React's server code), so also follow the framework's own advisories and update it when it ships a fixed copy | AUTO `python_libraries`, `node_libraries` · EVIDENCE the framework's advisories followed | A03, ASVS V15 |
 | SK-03 | Every library pinned to one exact version (hashes where possible), JavaScript lockfiles committed, GitHub actions pinned to full commit SHAs, container images pinned to digests, pre-commit hooks pinned to commits | AUTO `pins` | A03, LLM03 |
 | SK-04 | Dependabot proposes updates to the integration branch, with a 7-day cooldown | EVIDENCE `.github/dependabot.yml` | A03 |
 | SK-05 | Every new library is checked before it's added: it exists, it's the real one, and it's maintained (AI tools sometimes invent package names) | EVIDENCE pull request review | A03 |
@@ -42,7 +42,7 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-10 | Written rules for who may see and change what (`ACCESS.md`) | SKILL `access-guard` | A01, API1, API5 |
-| SK-11 | Every route is covered by an access-rule test; a new route without a rule fails the build | AUTO `access_rules` | A01, API1 |
+| SK-11 | Every route is covered by an access-rule test, and a new route without a rule fails that test | AUTO `access_rules` runs the project's access tests with pytest; that they cover every route is up to the tests (`access-guard` writes one that does). A project with no `ACCESS.md` and no tests named has nothing to run, and the check passes · SKILL `access-guard` | A01, API1 |
 | SK-12 | Nobody reaches another person's records by changing an ID or a field | SKILL `access-guard` tests | API1, API3 |
 | SK-13 | Login comes from a maintained library or service; no hand-written cryptography | EVIDENCE review | A07, ASVS V6, ASVS V11 |
 | SK-14 | Passwords stored with a slow password hash (bcrypt or argon2) | EVIDENCE test | A04, ASVS V6 |
@@ -108,6 +108,6 @@ data protection.
 | ID | Check | How | Sources |
 |---|---|---|---|
 | SK-51 | Every change to production had a code review and a security review | EVIDENCE pull request | A06 |
-| SK-52 | A launch check passed within the last 30 days | SKILL `launch-check` (a release gate is planned) | |
+| SK-52 | A launch check passed within the last 30 days | SKILL `launch-check` · the `secure-start` skill's release gate, a Claude Code hook outside the kit, stops Claude from opening a production pull request without a passing check from the last 30 days or an approved exception. A pull request opened by hand isn't stopped | |
 | SK-53 | For apps holding sensitive data: an independent penetration test, or a written decision to launch without one | DECISION | |
 | SK-54 | A full security audit before the first release and every three months | EVIDENCE audit report | |

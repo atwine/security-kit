@@ -3,7 +3,7 @@
 Shared security checks, templates and a checklist that my projects use, so
 every project starts secure and stays current as security standards change.
 
-**Status: test releases (0.x). Not ready for general use.**
+**Status: release candidate for v1.0.0.** Until v1.0.0 is tagged, pin a 0.x release.
 
 ## What's in it
 
