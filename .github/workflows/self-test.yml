@@ -166,6 +166,20 @@ jobs:
       fail-on-findings: false
       self-test-defect: semgrepignore
 
+  gitattributes-secret:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: gitattributes-secret
+
+  gitignored-risky-code:
+    uses: ./.github/workflows/scans.yml
+    with:
+      working-directory: selftest/fixture-app
+      fail-on-findings: false
+      self-test-defect: gitignored-risky-code
+
   npmrc-registry:
     uses: ./.github/workflows/scans.yml
     with:
@@ -344,7 +358,8 @@ jobs:
     needs: [clean, secret, vulnerable-library, node-library, risky-code, unpinned-library, unruled-route,
             forge-verdict, mask-failure, hidden-folder-code, env-folder-pin, site-clean, site-missing-headers,
             site-env-bypass, npm-subfolder, yarn-lockfile, pyproject-library, renamed-access-tests,
-            missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, site-no-hsts,
+            missing-access-tests, gitleaks-config, semgrepignore, npmrc-registry, gitattributes-secret,
+            gitignored-risky-code, site-no-hsts,
             site-no-referrer-permissions, site-insecure-cookie, site-cors-wildcard, site-redirect-cookie,
             site-env-bypass-policy, pin-included-file, pin-workflow-image, pin-precommit-tag,
             watcher, watcher-recent, self-test-rules]

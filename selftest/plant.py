@@ -10,6 +10,7 @@ stores a secret-shaped string.
 import json
 import secrets
 import string
+import subprocess
 import sys
 from pathlib import Path
 
@@ -267,6 +268,23 @@ def npmrc_registry(app: Path) -> None:
     (app / ".npmrc").write_text("registry=http://127.0.0.1:9/\nmin-release-age = 7\n", encoding="utf-8")
 
 
+def gitattributes_secret(app: Path) -> None:
+    # A leaked token in a file the project marks as binary, so git shows its
+    # history as "Binary files differ" (an easy accident with data files).
+    secret(app)
+    with Path(".gitattributes").open("a", encoding="utf-8") as attributes:
+        attributes.write(f"{(app / 'settings_local.py').as_posix()} -diff\n")
+
+
+def gitignored_risky_code(app: Path) -> None:
+    # Risky code in a file that is committed although .gitignore lists it.
+    risky_code(app)
+    target = (app / "run_command.py").as_posix()
+    with Path(".gitignore").open("a", encoding="utf-8") as ignore:
+        ignore.write(f"{target}\n")
+    subprocess.run(["git", "add", "-f", "--", target], check=True)
+
+
 def replace_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     if text.count(old) != 1:
@@ -294,6 +312,8 @@ DEFECTS = {
     "gitleaks-config": gitleaks_config,
     "semgrepignore": semgrepignore,
     "npmrc-registry": npmrc_registry,
+    "gitattributes-secret": gitattributes_secret,
+    "gitignored-risky-code": gitignored_risky_code,
     "site-no-hsts": site_no_hsts,
     "site-no-referrer-permissions": site_no_referrer_permissions,
     "site-insecure-cookie": site_insecure_cookie,
