@@ -217,6 +217,11 @@
     cache between jobs, a deliberate `.gitleaksignore`, and the run
     summary's list of skip comments missing some spellings).
 
+- Readable results: each checks job writes a plain-language section to the
+  run's summary page, with every check as passed, found N (each item and
+  where it is, plus what to do), couldn't check, or didn't run. The step
+  only reports, so it never fails the job.
+
 ## v0.1.0 (2026-11-19), test release
 
 - Shared checks (`scans.yml`): gitleaks, pip-audit, npm audit, Semgrep,

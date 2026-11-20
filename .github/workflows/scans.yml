@@ -237,6 +237,22 @@ jobs:
         # checked (checks/inventory.py).
         run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" npm-audit "$WD" "$RUNNER_TEMP/reports"
 
+      # Every check's result in plain words on the run's summary page:
+      # passed, what it found and where, or what it couldn't check. It only
+      # reports, so it never fails the job (continue-on-error).
+      - name: What each check found
+        if: always()
+        continue-on-error: true
+        env:
+          SECRETS: ${{ steps.secrets.outcome }}
+          RISKY_CODE: ${{ steps.risky_code.outcome }}
+          PINS: ${{ steps.pins.outcome }}
+          NODE_LIBRARIES: ${{ steps.node_libraries.outcome }}
+        run: |
+          python -I "$RUNNER_TEMP/security-kit/checks/findings.py" summary "$RUNNER_TEMP/reports" \
+            "secrets=$SECRETS" "risky_code=$RISKY_CODE" "pins=$PINS" "node_libraries=$NODE_LIBRARIES" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
       # In the kit's own repository only: list what each check's tool
       # reported, so the self-test can prove each catch is the defect it
       # planted. Every other repository skips this, and the verdict never
@@ -358,6 +374,15 @@ jobs:
           TESTS: ${{ inputs.access-tests }}
         # TESTS is split on spaces on purpose: one or more test files.
         run: python -I "$RUNNER_TEMP/security-kit/checks/inventory.py" access-tests "$WD" "$RUNNER_TEMP/reports" $TESTS
+
+      - name: What each check found
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHON_LIBRARIES: ${{ steps.python_libraries.outcome }}
+          ACCESS_RULES: ${{ steps.access_rules.outcome }}
+        run: |
+          python -I "$RUNNER_TEMP/security-kit/checks/findings.py" summary "$RUNNER_TEMP/reports"             "python_libraries=$PYTHON_LIBRARIES" "access_rules=$ACCESS_RULES" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - id: evidence
         name: What each check reported (kit's own repository only)

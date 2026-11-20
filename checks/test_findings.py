@@ -229,5 +229,78 @@ class Readers(unittest.TestCase):
         self.assertIn("unreadable report", self.show("pip-audit", self.write("pip-audit-1.json", {"dependencies": "oops"})))
 
 
+class Summary(unittest.TestCase):
+    """Step 1 of the reporting plan: every check's result in plain words on the run's summary page."""
+
+    def test_a_clean_check_reads_passed(self):
+        text = findings.summary({"secrets": "success"}, {"secrets": []})
+        self.assertIn("| Leaked secrets (gitleaks) | passed |", text)
+
+    def test_a_finding_shows_its_file_line_and_what_to_do(self):
+        text = findings.summary({"risky_code": "failure"}, {"risky_code": ["app/run.py:5 (subprocess-shell-true)"]})
+        self.assertIn("| Risky code patterns (Semgrep) | found 1 |", text)
+        self.assertIn("`app/run.py:5 (subprocess-shell-true)`", text)
+        self.assertIn("What to do:", text)
+
+    def test_a_check_that_could_not_look_says_so(self):
+        text = findings.summary({"node_libraries": "failure"}, {"node_libraries": ["not checked: web/yarn.lock"]})
+        self.assertIn("| JavaScript libraries (npm audit) | couldn't check 1 |", text)
+        self.assertIn("`web/yarn.lock`", text)
+
+    def test_a_check_that_did_not_run_says_so(self):
+        text = findings.summary({"pins": "skipped", "secrets": ""}, {})
+        self.assertIn("| Pinned versions | didn't run (skipped) |", text)
+        self.assertIn("| Leaked secrets (gitleaks) | didn't run |", text)
+
+    def test_a_failure_without_details_points_to_the_log(self):
+        text = findings.summary({"access_rules": "failure"}, {"access_rules": []})
+        self.assertIn("| Access rules (the project's access tests) | failed |", text)
+        self.assertIn("step log", text)
+
+    def test_long_lists_are_cut_and_text_cannot_break_the_page(self):
+        items = [f"a|b`c\nd{i}.py:1" for i in range(30)]
+        text = findings.summary({"secrets": "failure"}, {"secrets": items})
+        self.assertIn("and 10 more", text)
+        self.assertNotIn("a|b", text)
+        self.assertNotIn("\nd0", text)
+
+    def test_an_unreadable_report_is_not_called_a_finding(self):
+        text = findings.summary({"secrets": "failure"}, {"secrets": ["unreadable report: gitleaks.json"]})
+        self.assertIn("| Leaked secrets (gitleaks) | couldn't check 1 |", text)
+        self.assertNotIn("What to do:", text)
+
+    def test_a_skipped_check_does_not_point_to_a_log(self):
+        text = findings.summary({"pins": "skipped"}, {})
+        self.assertNotIn("step log", text)
+        self.assertIn("didn't run", text)
+
+    def test_a_very_long_item_is_shortened(self):
+        text = findings.summary({"access_rules": "failure"}, {"access_rules": ["x" * 5000]})
+        self.assertLess(len(text), 2000)
+
+    def test_a_broken_not_checked_list_never_stops_the_summary(self):
+        (self.folder / "not-checked.json").write_text('{"secrets": 5}', encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(findings.main(["summary", str(self.folder), "secrets=failure"]), 0)
+        self.assertIn("Leaked secrets (gitleaks)", out.getvalue())
+
+    def test_the_command_reads_the_reports_folder(self):
+        self.write("semgrep.json", {"results": [{"path": "app.py", "start": {"line": 3}, "check_id": "x.y.eval-detected"}], "errors": []})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            findings.main(["summary", str(self.folder), "risky_code=failure", "secrets=success"])
+        self.assertIn("| Risky code patterns (Semgrep) | found 1 |", out.getvalue())
+        self.assertIn("app.py:3", out.getvalue())
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+
+    def write(self, name, data):
+        (self.folder / name).write_text(json.dumps(data), encoding="utf-8")
+
+
 if __name__ == "__main__":
     unittest.main()
